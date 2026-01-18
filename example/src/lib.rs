@@ -9,10 +9,10 @@
 //! This example demonstrates how to use the cimple utilities to create
 //! safe, ergonomic C FFI bindings. It showcases:
 //!
-//! - Handle-based API for managing Rust objects from C
+//! - Pointer-based API with type validation
 //! - Safe string conversion and memory management
 //! - Error handling with thread-local last error
-//! - Allocation tracking to prevent double-frees
+//! - Universal `cimple_free()` function for any tracked pointer
 //!
 //! ## Building
 //!
@@ -28,16 +28,19 @@
 use std::os::raw::c_char;
 
 use cimple::{
-    cstr_or_return_int, cstr_or_return_null, free_c_string, guard_handle_mut_or_return_neg,
-    guard_handle_or_null, ptr_or_return_int, to_c_string, Error,
+    box_tracked, cstr_or_return_int, cstr_or_return_null, deref_mut_or_return_neg,
+    deref_or_return_null, deref_or_return_zero, ptr_or_return_int, to_c_string, Error, ErrorCode,
 };
 
 // ============================================================================
 // Example Rust Type - This is what we're wrapping
 // ============================================================================
 
-/// A simple string wrapper that demonstrates handle-based FFI
-struct MyString {
+/// A simple string wrapper that demonstrates pointer-based FFI
+///
+/// This struct is exposed directly to C as an opaque type.
+/// C code receives `*mut MyString` pointers but cannot access the internals.
+pub struct MyString {
     value: String,
 }
 
@@ -68,20 +71,6 @@ impl MyString {
 }
 
 // ============================================================================
-// C FFI - Opaque Handle Type
-// ============================================================================
-
-/// Opaque handle to a MyString object.
-///
-/// This handle must be created with `mystring_create()` and freed with
-/// `mystring_free()`. Never attempt to dereference this pointer directly
-/// from C code.
-#[repr(C)]
-pub struct MyStringHandle {
-    _private: [u8; 0],
-}
-
-// ============================================================================
 // C FFI - Constructor/Destructor
 // ============================================================================
 
@@ -91,55 +80,39 @@ pub struct MyStringHandle {
 /// - `initial`: Initial string value (must be valid UTF-8)
 ///
 /// # Returns
-/// - Handle to the new MyString object, or NULL on error
+/// - Pointer to the new MyString object, or NULL on error
 ///
 /// # Memory Management
-/// The returned handle must be freed with `mystring_free()` when no longer needed.
+/// The returned pointer must be freed with `cimple_free()` when no longer needed.
 ///
 /// # Example
 /// ```c
-/// MyStringHandle* handle = mystring_create("Hello, World!");
-/// if (handle != NULL) {
-///     // Use the handle...
-///     mystring_free(handle);
+/// MyString* str = mystring_create("Hello, World!");
+/// if (str != NULL) {
+///     // Use the string...
+///     cimple_free(str);
 /// }
 /// ```
 #[no_mangle]
-pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyStringHandle {
-    // Convert C string to Rust String with automatic null check
+pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyString {
     let initial_str = cstr_or_return_null!(initial);
-
-    // Create the Rust object
-    let my_string = MyString::new(initial_str);
-
-    // Convert to handle and return (returns null on error)
-    let handle = cimple::get_handles().insert(my_string);
-    cimple::handle_to_ptr::<MyStringHandle>(handle)
+    box_tracked!(MyString::new(initial_str))
 }
 
 /// Frees a MyString object.
 ///
+/// # Deprecated
+/// Use `cimple_free()` instead. This function is kept for API compatibility.
+///
 /// # Parameters
-/// - `handle`: Handle to free (can be NULL)
+/// - `ptr`: Pointer to free (can be NULL)
 ///
 /// # Returns
 /// - 0 on success
-/// - -1 on error (invalid handle or already freed)
-///
-/// # Safety
-/// After calling this function, the handle is no longer valid and must not be used.
-/// Passing NULL is safe and will return 0.
-/// Passing an invalid or already-freed handle will return -1 and set the last error.
-///
-/// # Example
-/// ```c
-/// MyStringHandle* handle = mystring_create("test");
-/// int result = mystring_free(handle);
-/// // handle is now invalid - don't use it!
-/// ```
+/// - -1 on error (invalid pointer or already freed)
 #[no_mangle]
-pub extern "C" fn mystring_free(handle: *mut MyStringHandle) -> i32 {
-    cimple::free_handle!(handle, MyString)
+pub extern "C" fn mystring_free(ptr: *mut MyString) -> i32 {
+    cimple::cimple_free(ptr as *mut std::ffi::c_void)
 }
 
 // ============================================================================
@@ -149,48 +122,29 @@ pub extern "C" fn mystring_free(handle: *mut MyStringHandle) -> i32 {
 /// Gets the current value of the string.
 ///
 /// # Parameters
-/// - `handle`: Handle to MyString object
+/// - `ptr`: Pointer to MyString object
 ///
 /// # Returns
 /// - Pointer to a newly allocated C string containing the value, or NULL on error
 ///
 /// # Memory Management
-/// The returned string is allocated by Rust and must be freed with `mystring_string_free()`.
-///
-/// # Example
-/// ```c
-/// char* value = mystring_get_value(handle);
-/// if (value != NULL) {
-///     printf("Value: %s\n", value);
-///     mystring_string_free(value);
-/// }
-/// ```
+/// The returned string must be freed with `cimple_free()`.
 #[no_mangle]
-pub extern "C" fn mystring_get_value(handle: *mut MyStringHandle) -> *mut c_char {
-    guard_handle_or_null!(handle, MyString, obj);
+pub extern "C" fn mystring_get_value(ptr: *mut MyString) -> *mut c_char {
+    let obj = deref_or_return_null!(ptr, MyString);
     to_c_string(obj.get_value().to_string())
 }
 
 /// Gets the length of the string in bytes.
 ///
 /// # Parameters
-/// - `handle`: Handle to MyString object
+/// - `ptr`: Pointer to MyString object
 ///
 /// # Returns
 /// - Length of the string in bytes, or 0 on error
-///
-/// # Note
-/// For UTF-8 strings, this returns the byte length, not the character count.
-///
-/// # Example
-/// ```c
-/// size_t len = mystring_len(handle);
-/// printf("Length: %zu bytes\n", len);
-/// ```
 #[no_mangle]
-pub extern "C" fn mystring_len(handle: *mut MyStringHandle) -> usize {
-    cimple::guard_handle_or_default!(handle, MyString, obj, 0);
-    obj.len()
+pub extern "C" fn mystring_len(ptr: *mut MyString) -> usize {
+    deref_or_return_zero!(ptr, MyString).len()
 }
 
 // ============================================================================
@@ -200,22 +154,15 @@ pub extern "C" fn mystring_len(handle: *mut MyStringHandle) -> usize {
 /// Sets a new value for the string.
 ///
 /// # Parameters
-/// - `handle`: Handle to MyString object
+/// - `ptr`: Pointer to MyString object
 /// - `new_value`: New string value (must be valid UTF-8)
 ///
 /// # Returns
 /// - 0 on success
 /// - -1 on error
-///
-/// # Example
-/// ```c
-/// if (mystring_set_value(handle, "New value") == 0) {
-///     printf("Value updated successfully\n");
-/// }
-/// ```
 #[no_mangle]
-pub extern "C" fn mystring_set_value(handle: *mut MyStringHandle, new_value: *const c_char) -> i32 {
-    guard_handle_mut_or_return_neg!(handle, MyString, obj);
+pub extern "C" fn mystring_set_value(ptr: *mut MyString, new_value: *const c_char) -> i32 {
+    let obj = deref_mut_or_return_neg!(ptr, MyString);
     let new_value_str = cstr_or_return_int!(new_value);
     obj.set_value(new_value_str);
     0
@@ -224,22 +171,15 @@ pub extern "C" fn mystring_set_value(handle: *mut MyStringHandle, new_value: *co
 /// Appends a string to the end of the current value.
 ///
 /// # Parameters
-/// - `handle`: Handle to MyString object
+/// - `ptr`: Pointer to MyString object
 /// - `suffix`: String to append (must be valid UTF-8)
 ///
 /// # Returns
 /// - 0 on success
 /// - -1 on error
-///
-/// # Example
-/// ```c
-/// mystring_create("Hello");
-/// mystring_append(handle, ", World!");
-/// // Value is now "Hello, World!"
-/// ```
 #[no_mangle]
-pub extern "C" fn mystring_append(handle: *mut MyStringHandle, suffix: *const c_char) -> i32 {
-    guard_handle_mut_or_return_neg!(handle, MyString, obj);
+pub extern "C" fn mystring_append(ptr: *mut MyString, suffix: *const c_char) -> i32 {
+    let obj = deref_mut_or_return_neg!(ptr, MyString);
     let suffix_str = cstr_or_return_int!(suffix);
     obj.append(&suffix_str);
     0
@@ -252,57 +192,38 @@ pub extern "C" fn mystring_append(handle: *mut MyStringHandle, suffix: *const c_
 /// Converts the string to uppercase and returns a new string.
 ///
 /// # Parameters
-/// - `handle`: Handle to MyString object
+/// - `ptr`: Pointer to MyString object
 ///
 /// # Returns
 /// - Pointer to a newly allocated C string containing the uppercase version, or NULL on error
 ///
 /// # Memory Management
-/// The returned string must be freed with `mystring_string_free()`.
-///
-/// # Example
-/// ```c
-/// char* upper = mystring_to_uppercase(handle);
-/// if (upper != NULL) {
-///     printf("Uppercase: %s\n", upper);
-///     mystring_string_free(upper);
-/// }
-/// ```
+/// The returned string must be freed with `cimple_free()`.
 #[no_mangle]
-pub extern "C" fn mystring_to_uppercase(handle: *mut MyStringHandle) -> *mut c_char {
-    guard_handle_or_null!(handle, MyString, obj);
+pub extern "C" fn mystring_to_uppercase(ptr: *mut MyString) -> *mut c_char {
+    let obj = deref_or_return_null!(ptr, MyString);
     to_c_string(obj.to_uppercase())
 }
 
 // ============================================================================
-// C FFI - Memory Management for Returned Strings
+// C FFI - Memory Management
 // ============================================================================
 
 /// Frees a string returned by this library.
+///
+/// # Deprecated
+/// Use `cimple_free()` instead. This function is kept for API compatibility.
 ///
 /// # Parameters
 /// - `str`: String pointer to free (can be NULL)
 ///
 /// # Returns
 /// - 0 on success
-/// - -1 if the string was not allocated by this library (double-free or invalid pointer)
-///
-/// # Safety
-/// Only call this on strings returned by functions in this library
-/// (e.g., `mystring_get_value()`, `mystring_to_uppercase()`).
-/// Do not call this on strings you allocated yourself.
-/// Passing NULL is safe and will return 0.
-///
-/// # Example
-/// ```c
-/// char* value = mystring_get_value(handle);
-/// // Use value...
-/// mystring_string_free(value);  // Must free!
-/// ```
+/// - -1 if the string was not allocated by this library
 #[no_mangle]
 pub extern "C" fn mystring_string_free(str: *mut c_char) -> i32 {
     ptr_or_return_int!(str);
-    if unsafe { free_c_string(str) } {
+    if unsafe { cimple::free_c_string(str) } {
         0
     } else {
         -1
@@ -310,8 +231,83 @@ pub extern "C" fn mystring_string_free(str: *mut c_char) -> i32 {
 }
 
 // ============================================================================
+// C FFI - Error Code Constants
+// ============================================================================
+
+/// Error code constant: No error
+#[no_mangle]
+pub static ERROR_OK: i32 = ErrorCode::Ok as i32;
+
+/// Error code constant: NULL parameter
+#[no_mangle]
+pub static ERROR_NULL_PARAMETER: i32 = ErrorCode::NullParameter as i32;
+
+/// Error code constant: String too long
+#[no_mangle]
+pub static ERROR_STRING_TOO_LONG: i32 = ErrorCode::StringTooLong as i32;
+
+/// Error code constant: Invalid handle
+#[no_mangle]
+pub static ERROR_INVALID_HANDLE: i32 = ErrorCode::InvalidHandle as i32;
+
+/// Error code constant: Wrong handle type
+#[no_mangle]
+pub static ERROR_WRONG_HANDLE_TYPE: i32 = ErrorCode::WrongHandleType as i32;
+
+/// Error code constant: Other error
+#[no_mangle]
+pub static ERROR_OTHER: i32 = ErrorCode::Other as i32;
+
+// ============================================================================
 // C FFI - Error Handling
 // ============================================================================
+
+/// Gets the last error code.
+///
+/// Error codes enable language bindings to create typed exceptions.
+/// For example, C++ can map error codes to specific exception types,
+/// and Python can create custom exception classes.
+///
+/// # Returns
+/// - 0 (ERROR_OK) if no error
+/// - Error code corresponding to the error type:
+///   - 1: ERROR_NULL_PARAMETER - A required parameter was NULL
+///   - 2: ERROR_STRING_TOO_LONG - String exceeds maximum length
+///   - 3: ERROR_INVALID_HANDLE - Handle is invalid or already freed
+///   - 4: ERROR_WRONG_HANDLE_TYPE - Handle type doesn't match expected type
+///   - 5: ERROR_OTHER - Other error occurred
+///
+/// # Example (C)
+/// ```c
+/// if (mystring_set_value(handle, NULL) != 0) {
+///     int32_t code = mystring_error_code();
+///     char* msg = mystring_error_message();
+///     fprintf(stderr, "Error %d: %s\n", code, msg);
+///     mystring_string_free(msg);
+/// }
+/// ```
+///
+/// # Example (C++ Exception)
+/// ```cpp
+/// class MyStringException : public std::exception {
+///     int code_;
+///     std::string message_;
+/// public:
+///     MyStringException() : code_(mystring_error_code()) {
+///         char* msg = mystring_error_message();
+///         if (msg) {
+///             message_ = msg;
+///             mystring_string_free(msg);
+///         }
+///     }
+///     const char* what() const noexcept override { return message_.c_str(); }
+///     int code() const { return code_; }
+/// };
+/// ```
+#[no_mangle]
+pub extern "C" fn mystring_error_code() -> i32 {
+    Error::last_code() as i32
+}
 
 /// Gets the last error message.
 ///

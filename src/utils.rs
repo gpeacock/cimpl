@@ -19,109 +19,207 @@
 //! - Buffer safety: Validates buffer sizes and pointer arithmetic
 
 use std::{
-    any::Any,
+    any::TypeId,
     collections::HashMap,
     os::raw::c_uchar,
-    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 use crate::error::Error;
 
 // ============================================================================
-// Handle Management System
+// Pointer Registry - Tracks pointers with their cleanup functions
 // ============================================================================
 
-pub type Handle = u64;
-pub type HandleValue = Arc<Mutex<Box<dyn Any + Send>>>;
+type CleanupFn = Box<dyn FnMut() + Send>;
 
-pub struct HandleMap {
-    map: RwLock<HashMap<Handle, HandleValue>>,
-    next_id: AtomicU64,
+/// Registry that tracks pointers allocated from Rust and passed to C.
+/// Each pointer is associated with its type and a cleanup function,
+/// enabling type validation and universal freeing via `cimple_free()`.
+pub struct PointerRegistry {
+    tracked: Mutex<HashMap<usize, (TypeId, CleanupFn)>>,
 }
 
-impl HandleMap {
+impl PointerRegistry {
     fn new() -> Self {
         Self {
-            map: RwLock::new(HashMap::new()),
-            next_id: AtomicU64::new(1), // 0 = NULL
+            tracked: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Insert a value and return its handle
-    pub fn insert<T: Any + Send + 'static>(&self, value: T) -> Handle {
-        let handle = self
-            .next_id
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let mut map = self.map.write().unwrap();
-        map.insert(handle, Arc::new(Mutex::new(Box::new(value))));
-        handle
+    /// Track a pointer with its type and cleanup function
+    fn track(&self, ptr: usize, type_id: TypeId, cleanup: CleanupFn) {
+        if ptr != 0 {
+            self.tracked
+                .lock()
+                .unwrap()
+                .insert(ptr, (type_id, cleanup));
+        }
     }
 
-    /// Get an Arc to work with - avoids nested lock issues
-    /// Returns the HandleValue which must be downcast by the caller
-    pub fn get(&self, handle: Handle) -> Result<HandleValue, Error> {
-        let map = self.map.read().unwrap();
-        let arc = map
-            .get(&handle)
-            .ok_or(Error::InvalidHandle(handle))?
-            .clone(); // Just increments Arc refcount - cheap!
-        drop(map); // Release map lock immediately
-        Ok(arc)
+    /// Validate that a pointer is tracked and has the expected type
+    pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), Error> {
+        if ptr == 0 {
+            return Err(Error::NullParameter("pointer".to_string()));
+        }
+
+        let tracked = self.tracked.lock().unwrap();
+        match tracked.get(&ptr) {
+            Some((actual_type, _)) if *actual_type == expected_type => Ok(()),
+            Some(_) => Err(Error::WrongHandleType(ptr as u64)),
+            None => Err(Error::InvalidHandle(ptr as u64)),
+        }
     }
 
-    /// Remove and return a value
-    pub fn remove<T: Any + 'static>(&self, handle: Handle) -> Result<T, Error> {
-        let mut map = self.map.write().unwrap();
-        let arc = map.remove(&handle).ok_or(Error::InvalidHandle(handle))?;
-        drop(map); // Release write lock
+    /// Free a tracked pointer by calling its cleanup function
+    pub fn free(&self, ptr: usize) -> Result<(), Error> {
+        if ptr == 0 {
+            return Ok(()); // NULL is always safe
+        }
 
-        // Try to unwrap the Arc (will fail if anyone else holds a clone)
-        let mutex =
-            Arc::try_unwrap(arc).map_err(|_| Error::Other("Handle still in use".to_string()))?;
+        let mut cleanup = {
+            let mut tracked = self.tracked.lock().unwrap();
+            match tracked.remove(&ptr) {
+                Some((_, cleanup)) => cleanup,
+                None => return Err(Error::InvalidHandle(ptr as u64)),
+            }
+        }; // Release lock before cleanup
 
-        let boxed = mutex.into_inner().unwrap();
-        boxed
-            .downcast::<T>()
-            .map(|b| *b)
-            .map_err(|_| Error::WrongHandleType(handle))
+        cleanup(); // Run the cleanup function
+        Ok(())
     }
 }
 
-impl Drop for HandleMap {
+impl Drop for PointerRegistry {
     fn drop(&mut self) {
-        let map = self.map.read().unwrap();
-        if !map.is_empty() {
+        let tracked = self.tracked.lock().unwrap();
+        if !tracked.is_empty() {
             eprintln!(
-                "\n⚠️  WARNING: {} handle(s) were not freed at shutdown!",
-                map.len()
+                "\n⚠️  WARNING: {} pointer(s) were not freed at shutdown!",
+                tracked.len()
             );
-            eprintln!("This indicates C code did not properly free all allocated handles.");
-            eprintln!(
-                "Each handle should be freed exactly once with the appropriate _free() function.\n"
-            );
+            eprintln!("This indicates C code did not properly free all allocated pointers.");
+            eprintln!("Each pointer should be freed exactly once with cimple_free().\n");
         }
     }
 }
 
-// Single global handle map - much simpler!
-pub fn get_handles() -> &'static HandleMap {
+/// Get the global pointer registry
+pub fn get_registry() -> &'static PointerRegistry {
     use std::sync::OnceLock;
-    static HANDLES: OnceLock<HandleMap> = OnceLock::new();
-    HANDLES.get_or_init(HandleMap::new)
-}
-
-/// Convert a typed pointer to a handle
-pub fn ptr_to_handle<T>(ptr: *mut T) -> Handle {
-    ptr as Handle
-}
-
-/// Convert a handle to a typed pointer
-pub fn handle_to_ptr<T>(handle: Handle) -> *mut T {
-    handle as *mut T
+    static REGISTRY: OnceLock<PointerRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(PointerRegistry::new)
 }
 
 // ============================================================================
-// Raw Pointer Allocation Tracking
+// Tracking Functions for Different Wrapper Types
+// ============================================================================
+
+/// Track a Box-wrapped pointer
+///
+/// Use this when you allocate with `Box::into_raw()`.
+/// The pointer will be freed with `Box::from_raw()` when `cimple_free()` is called.
+pub fn track_box<T: 'static>(ptr: *mut T) {
+    let ptr_val = ptr as usize; // Store as usize to make it Send
+    let cleanup = move || unsafe {
+        drop(Box::from_raw(ptr_val as *mut T));
+    };
+    get_registry().track(ptr as usize, TypeId::of::<T>(), Box::new(cleanup));
+}
+
+/// Track an Arc-wrapped pointer
+///
+/// Use this when you allocate with `Arc::into_raw()`.
+/// The pointer will be freed with `Arc::from_raw()` when `cimple_free()` is called.
+pub fn track_arc<T: 'static>(ptr: *mut T) {
+    let ptr_val = ptr as usize; // Store as usize to make it Send
+    let cleanup = move || unsafe {
+        drop(Arc::from_raw(ptr_val as *const T));
+    };
+    get_registry().track(ptr as usize, TypeId::of::<T>(), Box::new(cleanup));
+}
+
+/// Track an Arc<Mutex<T>>-wrapped pointer
+///
+/// Use this when you allocate with `Arc::into_raw(Arc::new(Mutex::new(value)))`.
+/// The pointer will be freed with `Arc::from_raw()` when `cimple_free()` is called.
+pub fn track_arc_mutex<T: 'static>(ptr: *mut Mutex<T>) {
+    let ptr_val = ptr as usize; // Store as usize to make it Send
+    let cleanup = move || unsafe {
+        drop(Arc::from_raw(ptr_val as *const Mutex<T>));
+    };
+    get_registry().track(ptr as usize, TypeId::of::<Mutex<T>>(), Box::new(cleanup));
+}
+
+/// Validate that a pointer is tracked and has the expected type
+pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
+    get_registry().validate(ptr as usize, TypeId::of::<T>())
+}
+
+/// Universal free function for any tracked pointer
+///
+/// Frees any pointer that was allocated and tracked through cimple
+/// (Box, Arc, Arc<Mutex>, etc.). The correct destructor is automatically called
+/// based on how the pointer was tracked.
+///
+/// # Returns
+/// - `Ok(())` if the pointer was successfully freed
+/// - `Err(Error)` if the pointer was not tracked (invalid or double-free)
+///
+/// # Safety
+/// - Safe to call with NULL (returns Ok)
+/// - Safe to call with any pointer tracked via `track_box()`, `track_arc()`, etc.
+/// - DO NOT call on untracked pointers or pointers you allocated yourself
+///
+/// # Example
+/// ```rust,no_run
+/// use cimple::{track_box, free_tracked_pointer};
+/// 
+/// let ptr = Box::into_raw(Box::new(42));
+/// track_box(ptr);
+/// // ... use ptr ...
+/// free_tracked_pointer(ptr as *mut u8).unwrap();
+/// ```
+pub fn free_tracked_pointer(ptr: *mut u8) -> Result<(), Error> {
+    get_registry().free(ptr as usize)
+}
+
+/// C-compatible wrapper for `free_tracked_pointer`
+///
+/// This is the universal free function exposed to C. It works for ANY pointer
+/// that was allocated and tracked through cimple, regardless of the wrapper type
+/// (Box, Arc, etc.) or the underlying Rust type.
+///
+/// # Returns
+/// - 0 on success
+/// - -1 if pointer was not tracked (invalid or double-free)
+///
+/// # Safety
+/// Safe to call with NULL (returns 0).
+/// Safe to call with any tracked pointer.
+/// DO NOT call on untracked pointers.
+///
+/// # Example (C)
+/// ```c
+/// MyString* str = mystring_create("hello");
+/// char* value = mystring_get_value(str);
+/// 
+/// cimple_free(value);  // Free the returned string
+/// cimple_free(str);    // Free the MyString - same function!
+/// ```
+#[no_mangle]
+pub extern "C" fn cimple_free(ptr: *mut std::ffi::c_void) -> i32 {
+    match free_tracked_pointer(ptr as *mut u8) {
+        Ok(()) => 0,
+        Err(e) => {
+            e.set_last();
+            -1
+        }
+    }
+}
+
+// ============================================================================
+// Raw Pointer Allocation Tracking (for C strings and buffers)
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,6 +345,11 @@ pub fn untrack_allocation(ptr: *const u8) -> bool {
 /// # Returns
 /// * `true` if the size is safe to use
 /// * `false` if the size would cause integer overflow
+///
+/// # Safety
+/// Caller must ensure that `ptr` points to valid memory if not null.
+/// This function performs pointer arithmetic with `ptr.add(size)` which requires
+/// that the pointer and size are valid for the memory region being checked.
 pub unsafe fn is_safe_buffer_size(size: usize, ptr: *const c_uchar) -> bool {
     // Combined checks for early return - improves branch prediction
     if size == 0 || size > isize::MAX as usize {
@@ -274,6 +377,13 @@ pub unsafe fn is_safe_buffer_size(size: usize, ptr: *const c_uchar) -> bool {
 /// # Returns
 /// * `Ok(slice)` if the slice is safe to create
 /// * `Err(Error)` if bounds validation fails
+///
+/// # Safety
+/// Caller must ensure that:
+/// - `ptr` points to valid, initialized memory for at least `len` bytes
+/// - The memory remains valid for the lifetime of the returned slice
+/// - The memory is not mutated while the slice exists
+/// - `len` does not exceed the actual size of the allocated memory
 pub unsafe fn safe_slice_from_raw_parts(
     ptr: *const c_uchar,
     len: usize,

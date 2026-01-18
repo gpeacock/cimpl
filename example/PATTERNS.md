@@ -231,7 +231,257 @@ pub extern "C" fn myobject_clear_error() {
 }
 ```
 
-## Pattern 11: String with Custom Length Limit
+## Pattern 10: Error Handling (Standard C Convention)
+
+Cimple follows standard C error conventions similar to `errno`. Functions indicate
+failure through return values, and error details are retrieved conditionally.
+
+```rust
+use cimple::Error;
+
+/// Gets the last error code.
+///
+/// Returns an integer error code. Only call after a function indicates failure.
+///
+/// # Returns
+/// - 0 (ERROR_OK) if no error
+/// - Error code 1-999 for cimple errors
+/// - Error code 1000+ for custom library errors
+#[no_mangle]
+pub extern "C" fn myobject_error_code() -> i32 {
+    Error::last_code() as i32
+}
+
+/// Gets the last error message.
+///
+/// Returns a string including the error type, e.g., "NullParameter: value"
+///
+/// # Returns
+/// - Pointer to error message string, or NULL if no error
+///
+/// # Memory Management
+/// The returned string must be freed with myobject_error_free()
+#[no_mangle]
+pub extern "C" fn myobject_last_error() -> *mut c_char {
+    match Error::last_message() {
+        Some(msg) => to_c_string(msg),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Clears the last error.
+#[no_mangle]
+pub extern "C" fn myobject_clear_error() {
+    Error::take_last();
+}
+```
+
+### C Usage Pattern
+
+```c
+// Check return value FIRST, then get error details
+MyObjectHandle* handle = myobject_create("test");
+if (handle == NULL) {
+    // NOW check error details
+    int code = myobject_error_code();
+    char* msg = myobject_last_error();
+    fprintf(stderr, "Error %d: %s\n", code, msg);
+    myobject_error_free(msg);
+}
+
+// Same pattern for operations
+if (myobject_process(handle) != 0) {
+    // NOW check error details
+    fprintf(stderr, "Error: %s\n", myobject_last_error());
+}
+```
+
+## Pattern 11: Exception Wrapper (AI-Generated Bindings)
+
+### C++ Exception Class
+
+Language bindings should create an exception class that wraps the error code and message:
+
+```cpp
+#include <exception>
+#include <string>
+#include "mylib.h"
+
+class MyLibException : public std::exception {
+private:
+    int code_;
+    std::string message_;
+    
+public:
+    MyLibException() {
+        code_ = mylib_error_code();
+        char* msg = mylib_error_message();
+        if (msg != nullptr) {
+            message_ = std::string(msg);
+            mylib_error_free(msg);
+        }
+    }
+    
+    MyLibException(const std::string& msg) : code_(5), message_(msg) {}
+    
+    const char* what() const noexcept override {
+        return message_.c_str();
+    }
+    
+    int code() const { return code_; }
+    
+    bool is_null_parameter() const { return code_ == 1; }
+    bool is_invalid_handle() const { return code_ == 3; }
+};
+
+// Helper macro for checking results
+#define CHECK_MYLIB(expr) \
+    do { \
+        auto result = (expr); \
+        if (!result) { \
+            throw MyLibException(); \
+        } \
+        return result; \
+    } while(0)
+
+// Usage:
+MyObjectHandle* handle = myobject_create();
+if (handle == nullptr) {
+    throw MyLibException();
+}
+```
+
+### Python Error Class
+
+```python
+import ctypes
+
+class MyLibError(Exception):
+    """Exception raised for errors in MyLib."""
+    
+    # Error code constants
+    ERROR_OK = 0
+    ERROR_NULL_PARAMETER = 1
+    ERROR_STRING_TOO_LONG = 2
+    ERROR_INVALID_HANDLE = 3
+    ERROR_WRONG_HANDLE_TYPE = 4
+    ERROR_OTHER = 5
+    
+    def __init__(self):
+        self.code = lib.mylib_error_code()
+        msg_ptr = lib.mylib_error_message()
+        if msg_ptr:
+            self.message = ctypes.c_char_p(msg_ptr).value.decode()
+            lib.mylib_error_free(msg_ptr)
+        else:
+            self.message = "Unknown error"
+    
+    def __str__(self):
+        error_names = {
+            self.ERROR_NULL_PARAMETER: "NullParameter",
+            self.ERROR_STRING_TOO_LONG: "StringTooLong",
+            self.ERROR_INVALID_HANDLE: "InvalidHandle",
+            self.ERROR_WRONG_HANDLE_TYPE: "WrongHandleType",
+            self.ERROR_OTHER: "Other",
+        }
+        error_name = error_names.get(self.code, "Unknown")
+        return f"MyLib.{error_name} (code {self.code}): {self.message}"
+    
+    @property
+    def is_null_parameter(self):
+        return self.code == self.ERROR_NULL_PARAMETER
+    
+    @property
+    def is_invalid_handle(self):
+        return self.code == self.ERROR_INVALID_HANDLE
+
+# Helper function for checking results
+def check_result(result, allow_null=False):
+    if not allow_null and not result:
+        raise MyLibError()
+    return result
+
+# Usage:
+handle = lib.myobject_create()
+if not handle:
+    raise MyLibError()
+
+# Or with helper:
+handle = check_result(lib.myobject_create())
+```
+
+### Go Error Type
+
+```go
+package mylib
+
+/*
+#include "mylib.h"
+#include <stdlib.h>
+*/
+import "C"
+import (
+    "fmt"
+    "unsafe"
+)
+
+// Error codes
+const (
+    ErrorOk = 0
+    ErrorNullParameter = 1
+    ErrorStringTooLong = 2
+    ErrorInvalidHandle = 3
+    ErrorWrongHandleType = 4
+    ErrorOther = 5
+)
+
+type MyLibError struct {
+    Code    int
+    Message string
+}
+
+func (e *MyLibError) Error() string {
+    errorNames := map[int]string{
+        ErrorNullParameter: "NullParameter",
+        ErrorStringTooLong: "StringTooLong",
+        ErrorInvalidHandle: "InvalidHandle",
+        ErrorWrongHandleType: "WrongHandleType",
+        ErrorOther: "Other",
+    }
+    
+    errorName := errorNames[e.Code]
+    if errorName == "" {
+        errorName = "Unknown"
+    }
+    
+    return fmt.Sprintf("MyLib.%s (code %d): %s", errorName, e.Code, e.Message)
+}
+
+func getLastError() *MyLibError {
+    code := int(C.mylib_error_code())
+    if code == ErrorOk {
+        return nil
+    }
+    
+    msgPtr := C.mylib_error_message()
+    if msgPtr == nil {
+        return &MyLibError{Code: code, Message: "Unknown error"}
+    }
+    
+    message := C.GoString(msgPtr)
+    C.mylib_error_free(msgPtr)
+    
+    return &MyLibError{Code: code, Message: message}
+}
+
+// Usage:
+handle := C.myobject_create()
+if handle == nil {
+    return getLastError()
+}
+```
+
+## Pattern 12: String with Custom Length Limit
 
 ```rust
 use cimple::cstr_or_return_with_limit;
@@ -251,7 +501,7 @@ pub extern "C" fn myobject_set_short_name(
 }
 ```
 
-## Pattern 12: Iterator Pattern
+## Pattern 13: Iterator Pattern
 
 ```rust
 #[repr(C)]

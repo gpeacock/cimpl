@@ -24,12 +24,24 @@ This approach gives you:
 
 ## Features
 
-### 🛡️ Handle-Based API
-Thread-safe handle management system for passing Rust objects to C without exposing raw pointers.
+### 🛡️ Pointer Registry with Type Validation
+Thread-safe pointer tracking with mandatory type validation for passing Rust objects to C.
 
 ```rust
-let handle = cimple::get_handles().insert(my_object);
-let ptr = cimple::handle_to_ptr::<MyType>(handle);
+// Choose your wrapper: Box (simple), Arc (shared), Arc<Mutex> (shared+mutable)
+let ptr = box_tracked!(my_object);  // Tracked automatically
+// Later: cimple_free(ptr) works for any tracked type
+```
+
+### 🎯 Universal Free Function
+One function to free ANY tracked pointer - objects, strings, or buffers.
+
+```c
+MyString* obj = mystring_create("hello");
+char* str = mystring_get_value(obj);
+
+cimple_free(str);  // Free the string
+cimple_free(obj);  // Free the object - same function!
 ```
 
 ### 🔍 Allocation Tracking
@@ -38,15 +50,6 @@ Prevents double-frees and detects memory leaks automatically.
 ```rust
 let c_string = to_c_string("Hello".to_string());  // Tracked!
 // If not freed, you'll get a warning at shutdown
-```
-
-### 🎯 Buffer Safety
-Validates buffer sizes and prevents integer overflow in pointer arithmetic.
-
-```rust
-let slice = unsafe { 
-    safe_slice_from_raw_parts(ptr, len, "buffer_name")?
-};
 ```
 
 ### 🪄 Ergonomic Macros
@@ -77,36 +80,26 @@ cbindgen = "0.27"
 
 ```rust
 use std::os::raw::c_char;
-use cimple::{cstr_or_return_null, guard_handle_or_null, to_c_string};
+use cimple::{box_tracked, cstr_or_return_null, validate_and_deref, to_c_string};
 
-struct MyString {
+// Export struct directly - opaque to C but tracked by cimple
+pub struct MyString {
     value: String,
 }
 
-// Opaque handle type for C
-#[repr(C)]
-pub struct MyStringHandle {
-    _private: [u8; 0],
-}
-
 #[no_mangle]
-pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyStringHandle {
+pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyString {
     let initial_str = cstr_or_return_null!(initial);
-    let my_string = MyString { value: initial_str };
-    let handle = cimple::get_handles().insert(my_string);
-    cimple::handle_to_ptr::<MyStringHandle>(handle)
+    box_tracked!(MyString { value: initial_str })  // Allocate, track, return
 }
 
 #[no_mangle]
-pub extern "C" fn mystring_to_uppercase(handle: *mut MyStringHandle) -> *mut c_char {
-    guard_handle_or_null!(handle, MyString, obj);
+pub extern "C" fn mystring_to_uppercase(ptr: *mut MyString) -> *mut c_char {
+    let obj = validate_and_deref!(ptr, MyString);  // Validate type
     to_c_string(obj.value.to_uppercase())
 }
 
-#[no_mangle]
-pub extern "C" fn mystring_free(handle: *mut MyStringHandle) -> i32 {
-    cimple::free_handle!(handle, MyString)
-}
+// No need for type-specific free - use universal cimple_free()
 ```
 
 ### Generate C Header with `cbindgen`
@@ -126,11 +119,11 @@ fn main() {
 Run `cargo build` and you get a clean C header:
 
 ```c
-typedef struct MyStringHandle MyStringHandle;
+typedef struct MyString MyString;
 
-MyStringHandle* mystring_create(const char* initial);
-char* mystring_to_uppercase(MyStringHandle* handle);
-int32_t mystring_free(MyStringHandle* handle);
+MyString* mystring_create(const char* initial);
+char* mystring_to_uppercase(MyString* ptr);
+int32_t cimple_free(void* ptr);  // Universal free!
 ```
 
 ### Let AI Generate Language Bindings
@@ -144,22 +137,27 @@ The AI generates idiomatic code:
 ```python
 class MyString:
     def __init__(self, initial: str):
-        self._handle = lib.mystring_create(initial.encode())
+        self._ptr = lib.mystring_create(initial.encode())
     
     def to_uppercase(self) -> str:
-        result = lib.mystring_to_uppercase(self._handle)
+        result = lib.mystring_to_uppercase(self._ptr)
         value = result.decode()
-        lib.mystring_string_free(result)
+        lib.cimple_free(result)  # Universal free!
         return value
+    
+    def __del__(self):
+        lib.cimple_free(self._ptr)  # Universal free!
 ```
 
 ## Complete Example
 
 See the [`example/`](example/) directory for a fully working example that demonstrates:
 
-- ✅ Handle-based API
+- ✅ Pointer-based API with type validation
+- ✅ Universal `cimple_free()` for all allocations
 - ✅ String conversion and memory management
-- ✅ Error handling with thread-local errors
+- ✅ Error handling with error codes and messages
+- ✅ Standard C conventions (NULL/-1 on error)
 - ✅ C header generation with `cbindgen`
 - ✅ C program using the library
 - ✅ Makefile for easy building
@@ -178,6 +176,8 @@ make run-c
 - `ptr_or_return!(ptr, error_value)` - Check pointer not null or return
 - `ptr_or_return_null!(ptr)` - Return null on null pointer
 - `ptr_or_return_int!(ptr)` - Return -1 on null pointer
+- `validate_and_deref!(ptr, Type)` - Validate type and dereference immutably
+- `validate_and_deref_mut_neg!(ptr, Type)` - Validate type and dereference mutably
 
 #### String Conversion
 - `cstr_or_return!(ptr, error_value)` - Convert C string with bounded read
@@ -192,12 +192,9 @@ make run-c
 - `ok_or_return_zero!(result)` - Return 0 on error
 - `ok_or_return_false!(result)` - Return false on error
 
-#### Handle Management
-- `return_handle!(result, error_handler, Type)` - Create and return handle
-- `free_handle!(ptr, Type)` - Free a handle safely
-- `guard_handle_or_null!(ptr, Type, name)` - Access handle immutably
-- `guard_handle_mut_or_return_neg!(ptr, Type, name)` - Access handle mutably
-- `guard_handle_or_default!(ptr, Type, name, default)` - With custom default
+#### Pointer Allocation
+- `box_tracked!(expr)` - Create Box-wrapped tracked pointer
+- `arc_tracked!(expr)` - Create Arc-wrapped tracked pointer
 
 ### Functions
 
@@ -209,10 +206,13 @@ make run-c
 - `to_c_bytes(Vec<u8>) -> *const c_uchar` - Convert to tracked byte array
 - `free_c_bytes(*const c_uchar) -> bool` - Free byte array safely
 
-#### Handle Management
-- `get_handles() -> &'static HandleMap` - Get global handle map
-- `handle_to_ptr<T>(Handle) -> *mut T` - Convert handle to pointer
-- `ptr_to_handle<T>(*mut T) -> Handle` - Convert pointer to handle
+#### Pointer Management
+- `track_box<T>(*mut T)` - Track Box-wrapped pointer
+- `track_arc<T>(*mut T)` - Track Arc-wrapped pointer
+- `track_arc_mutex<T>(*mut Mutex<T>)` - Track Arc<Mutex>-wrapped pointer
+- `validate_pointer<T>(*mut T) -> Result<()>` - Validate pointer type
+- `free_tracked_pointer(*mut u8) -> Result<()>` - Free any tracked pointer
+- `cimple_free(*mut c_void) -> i32` - C-compatible universal free (FFI)
 
 #### Buffer Safety
 - `safe_slice_from_raw_parts(ptr, len, name) -> Result<&[u8]>` - Create validated slice
@@ -233,9 +233,9 @@ make run-c
 ### 1. Double-Free Prevention
 
 ```c
-char* str = mylib_get_string();
-mylib_free_string(str);  // OK
-mylib_free_string(str);  // Returns -1, prints warning, doesn't crash
+MyString* str = mystring_create("hello");
+cimple_free(str);  // OK
+cimple_free(str);  // Returns -1, sets error, doesn't crash
 ```
 
 ### 2. Memory Leak Detection
@@ -243,27 +243,29 @@ mylib_free_string(str);  // Returns -1, prints warning, doesn't crash
 Forgot to free something? You'll know at shutdown:
 
 ```
-⚠️  WARNING: 2 handle(s) were not freed at shutdown!
-This indicates C code did not properly free all allocated handles.
+⚠️  WARNING: 2 pointer(s) were not freed at shutdown!
+This indicates C code did not properly free all allocated pointers.
 ```
 
-### 3. Bounded String Reading
-
-No more reading unbounded memory:
+### 3. Type Validation
 
 ```rust
-cstr_or_return_null!(ptr);  // Max 64KB, returns null if no terminator
+let obj = validate_and_deref!(ptr, WrongType);  
+// Returns error if wrong type or invalid pointer
 ```
 
-### 4. Thread-Safe Handles
+### 4. Thread Safety
 
-All handles are protected by mutexes and work safely across threads.
+The pointer registry is protected by a mutex and works safely across threads.
 
-### 5. Type-Safe Handle Casting
+### 5. Flexible Overhead
+
+Choose the right wrapper for your use case:
 
 ```rust
-guard_handle_or_null!(handle, WrongType, obj);  
-// Returns null and sets error if wrong type
+box_tracked!(obj)         // Simple ownership
+arc_tracked!(obj)         // Shared ownership
+track_arc_mutex(ptr)      // Shared + interior mutability
 ```
 
 ## Design Philosophy
@@ -271,8 +273,14 @@ guard_handle_or_null!(handle, WrongType, obj);
 ### 1. Explicit Control Flow
 Macros that perform early returns include `_or_return_` in their names.
 
-### 2. Opaque Handles > Raw Pointers
-Never expose Rust types directly. Use opaque handles with clear ownership.
+### 2. Direct Pointers with Type Validation
+Expose real pointers to C, but track them in Rust for validation.
+
+### 3. Universal Free Function
+One function (`cimple_free`) frees any tracked pointer - objects, strings, buffers.
+
+### 4. Flexible Overhead
+Users choose their wrapper type (Box, Arc, Arc<Mutex>) based on needs.
 
 ### 3. Clear Memory Ownership
 Every allocation has a clear owner and free function.

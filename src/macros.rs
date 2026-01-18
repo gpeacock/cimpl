@@ -26,11 +26,172 @@
 // Re-export types/functions that macros need
 #[doc(hidden)]
 #[allow(unused_imports)] // May not be directly used but needed for macro expansion
-pub use crate::utils::{get_handles, handle_to_ptr, ptr_to_handle, Handle};
+pub use crate::utils::{get_registry, validate_pointer};
 
 // ============================================================================
-// Core Flexible Macros (explicit "return" makes control flow clear)
+// Pointer Management Macros
 // ============================================================================
+//
+// These macros follow a consistent naming pattern:
+// - deref_or_return_*: Validate and return reference immediately
+// - deref_mut_or_return_*: Same as above, but mutable
+//
+// All variants support the standard suffixes:
+// - _null: Returns NULL on error
+// - _neg: Returns -1 on error
+// - _zero: Returns 0 on error
+// - _false: Returns false on error
+// - (base): Custom return value
+
+// ----------------------------------------------------------------------------
+// Deref Macros - Return reference immediately
+// ----------------------------------------------------------------------------
+
+/// Validate pointer and dereference immutably, returning reference
+/// Returns early with custom value on error
+#[macro_export]
+macro_rules! deref_or_return {
+    ($ptr:expr, $type:ty, $err_val:expr) => {{
+        $crate::ptr_or_return!($ptr, $err_val);
+        match $crate::validate_pointer::<$type>($ptr) {
+            Ok(()) => unsafe { &*($ptr as *const $type) },
+            Err(e) => {
+                e.set_last();
+                return $err_val;
+            }
+        }
+    }};
+}
+
+/// Validate pointer and dereference immutably, returning reference
+/// Returns NULL on error
+#[macro_export]
+macro_rules! deref_or_return_null {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_or_return!($ptr, $type, std::ptr::null_mut())
+    }};
+}
+
+/// Validate pointer and dereference immutably, returning reference
+/// Returns -1 on error
+#[macro_export]
+macro_rules! deref_or_return_neg {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_or_return!($ptr, $type, -1)
+    }};
+}
+
+/// Validate pointer and dereference immutably, returning reference
+/// Returns 0 on error
+#[macro_export]
+macro_rules! deref_or_return_zero {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_or_return!($ptr, $type, 0)
+    }};
+}
+
+/// Validate pointer and dereference immutably, returning reference
+/// Returns false on error
+#[macro_export]
+macro_rules! deref_or_return_false {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_or_return!($ptr, $type, false)
+    }};
+}
+
+/// Validate pointer and dereference mutably, returning reference
+/// Returns early with custom value on error
+#[macro_export]
+macro_rules! deref_mut_or_return {
+    ($ptr:expr, $type:ty, $err_val:expr) => {{
+        $crate::ptr_or_return!($ptr, $err_val);
+        match $crate::validate_pointer::<$type>($ptr) {
+            Ok(()) => unsafe { &mut *($ptr as *mut $type) },
+            Err(e) => {
+                e.set_last();
+                return $err_val;
+            }
+        }
+    }};
+}
+
+/// Validate pointer and dereference mutably, returning reference
+/// Returns NULL on error
+#[macro_export]
+macro_rules! deref_mut_or_return_null {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_mut_or_return!($ptr, $type, std::ptr::null_mut())
+    }};
+}
+
+/// Validate pointer and dereference mutably, returning reference
+/// Returns -1 on error
+#[macro_export]
+macro_rules! deref_mut_or_return_neg {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_mut_or_return!($ptr, $type, -1)
+    }};
+}
+
+// ----------------------------------------------------------------------------
+// Deprecated aliases for backward compatibility
+// ----------------------------------------------------------------------------
+
+#[deprecated(since = "0.2.0", note = "use `deref_or_return_null!` instead")]
+#[macro_export]
+macro_rules! validate_and_deref {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_or_return_null!($ptr, $type)
+    }};
+}
+
+#[deprecated(since = "0.2.0", note = "use `deref_mut_or_return_null!` instead")]
+#[macro_export]
+macro_rules! validate_and_deref_mut {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_mut_or_return_null!($ptr, $type)
+    }};
+}
+
+#[deprecated(since = "0.2.0", note = "use `deref_or_return_neg!` instead")]
+#[macro_export]
+macro_rules! validate_and_deref_neg {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_or_return_neg!($ptr, $type)
+    }};
+}
+
+#[deprecated(since = "0.2.0", note = "use `deref_mut_or_return_neg!` instead")]
+#[macro_export]
+macro_rules! validate_and_deref_mut_neg {
+    ($ptr:expr, $type:ty) => {{
+        $crate::deref_mut_or_return_neg!($ptr, $type)
+    }};
+}
+
+/// Create a Box-wrapped pointer and track it
+/// Returns the raw pointer
+#[macro_export]
+macro_rules! box_tracked {
+    ($expr:expr) => {{
+        let obj = $expr;
+        let ptr = Box::into_raw(Box::new(obj));
+        $crate::track_box(ptr);
+        ptr
+    }};
+}
+
+/// Create an Arc-wrapped pointer and track it
+/// Returns the raw pointer
+#[macro_export]
+macro_rules! arc_tracked {
+    ($expr:expr) => {{
+        let obj = $expr;
+        let ptr = Arc::into_raw(Arc::new(obj)) as *mut _;
+        $crate::track_arc(ptr);
+        ptr
+    }};
+}
 
 /// Maximum length for C strings when using bounded conversion (64KB)
 pub const MAX_CSTRING_LEN: usize = 65536;
@@ -222,164 +383,5 @@ macro_rules! cstr_option {
 }
 
 // ============================================================================
-// Handle Management Macros
+// Core Flexible Macros (explicit "return" makes control flow clear)
 // ============================================================================
-
-/// Convert a Result into a typed opaque pointer (handle disguised as pointer)
-/// This is a generic macro that requires a custom error handler function.
-#[macro_export]
-macro_rules! return_handle {
-    ($result:expr, $error_handler:expr, $type:ty) => {
-        match $result {
-            Ok(value) => {
-                let handle = $crate::macros::get_handles().insert(value);
-                $crate::macros::handle_to_ptr::<$type>(handle)
-            }
-            Err(err) => {
-                $error_handler(err);
-                std::ptr::null_mut()
-            }
-        }
-    };
-}
-
-/// Free a typed pointer (handle)
-#[macro_export]
-macro_rules! free_handle {
-    ($ptr:expr, $type:ty) => {{
-        if $ptr.is_null() {
-            return 0; // NULL is considered already freed
-        }
-        let handle = $crate::macros::ptr_to_handle($ptr);
-        match $crate::macros::get_handles().remove::<$type>(handle) {
-            Ok(_) => 0,
-            Err(err) => {
-                err.set_last();
-                -1
-            }
-        }
-    }};
-}
-
-/// Guard a handle parameter, creating an immutable reference with the given name
-/// Returns early with -1 on error
-#[macro_export]
-macro_rules! guard_handle_or_return_neg {
-    ($ptr:expr, $type:ty, $name:ident) => {
-        $crate::ptr_or_return!($ptr, -1);
-        let __arc = $crate::ok_or_return!(@local $crate::macros::get_handles().get($ptr as $crate::macros::Handle), |v| v, -1);
-        let __guard = match __arc.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                // Mutex was poisoned by a panic, but we can still access the data
-                eprintln!("WARNING: Mutex poisoned for handle {}, recovering", $ptr as $crate::macros::Handle);
-                poisoned.into_inner()
-            }
-        };
-        let $name = match __guard.downcast_ref::<$type>() {
-            Some(val) => val,
-            None => {
-                $crate::Error::WrongHandleType($ptr as $crate::macros::Handle).set_last();
-                return -1;
-            }
-        };
-    };
-}
-
-/// Guard a handle parameter, creating an immutable reference with the given name
-/// Returns early with null pointer on error
-#[macro_export]
-macro_rules! guard_handle_or_null {
-    ($ptr:expr, $type:ty, $name:ident) => {
-        $crate::ptr_or_return!($ptr, std::ptr::null_mut());
-        let __arc = $crate::ok_or_return!(@local $crate::macros::get_handles().get($ptr as $crate::macros::Handle), |v| v, std::ptr::null_mut());
-        let __guard = match __arc.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("WARNING: Mutex poisoned for handle {}, recovering", $ptr as $crate::macros::Handle);
-                poisoned.into_inner()
-            }
-        };
-        let $name = match __guard.downcast_ref::<$type>() {
-            Some(val) => val,
-            None => {
-                $crate::Error::WrongHandleType($ptr as $crate::macros::Handle).set_last();
-                return std::ptr::null_mut();
-            }
-        };
-    };
-}
-
-/// Guard a handle parameter, creating a mutable reference with the given name
-/// Returns early with -1 on error
-#[macro_export]
-macro_rules! guard_handle_mut_or_return_neg {
-    ($ptr:expr, $type:ty, $name:ident) => {
-        $crate::ptr_or_return!($ptr, -1);
-        let __arc = $crate::ok_or_return!(@local $crate::macros::get_handles().get($ptr as $crate::macros::Handle), |v| v, -1);
-        let mut __guard = match __arc.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("WARNING: Mutex poisoned for handle {}, recovering", $ptr as $crate::macros::Handle);
-                poisoned.into_inner()
-            }
-        };
-        let $name = match __guard.downcast_mut::<$type>() {
-            Some(val) => val,
-            None => {
-                $crate::Error::WrongHandleType($ptr as $crate::macros::Handle).set_last();
-                return -1;
-            }
-        };
-    };
-}
-
-/// Guard a handle parameter mutably (return void on error)
-#[macro_export]
-macro_rules! guard_handle_mut_or_return {
-    ($ptr:expr, $type:ty, $name:ident) => {
-        if $ptr.is_null() {
-            $crate::Error::set_last($crate::Error::NullParameter(stringify!($ptr).to_string()));
-            return;
-        }
-        let __arc = $crate::ok_or_return!(@local $crate::macros::get_handles().get($ptr as $crate::macros::Handle), |v| v, ());
-        let mut __guard = match __arc.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("WARNING: Mutex poisoned for handle {}, recovering", $ptr as $crate::macros::Handle);
-                poisoned.into_inner()
-            }
-        };
-        let $name = match __guard.downcast_mut::<$type>() {
-            Some(val) => val,
-            None => {
-                $crate::Error::WrongHandleType($ptr as $crate::macros::Handle).set_last();
-                return;
-            }
-        };
-    };
-}
-
-/// Guard a handle parameter (return default value on error)
-/// Useful for bool, usize, or other non-pointer returns
-#[macro_export]
-macro_rules! guard_handle_or_default {
-    ($ptr:expr, $type:ty, $name:ident, $default:expr) => {
-        $crate::ptr_or_return!($ptr, $default);
-        let __arc = $crate::ok_or_return!(@local $crate::macros::get_handles().get($ptr as $crate::macros::Handle), |v| v, $default);
-        let __guard = match __arc.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("WARNING: Mutex poisoned for handle {}, recovering", $ptr as $crate::macros::Handle);
-                poisoned.into_inner()
-            }
-        };
-        let $name = match __guard.downcast_ref::<$type>() {
-            Some(val) => val,
-            None => {
-                $crate::Error::WrongHandleType($ptr as $crate::macros::Handle).set_last();
-                return $default;
-            }
-        };
-    };
-}
