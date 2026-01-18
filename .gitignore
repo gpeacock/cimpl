@@ -1,0 +1,28 @@
+# Rust build artifacts
+target/
+Cargo.lock
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated files
+include/
+example/include/
+
+# Build outputs
+example/example
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.lib
+
+# Backup files
+*.bak
+*.tmp

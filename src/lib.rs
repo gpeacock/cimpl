@@ -1,0 +1,57 @@
+// Copyright 2024 Adobe. All rights reserved.
+// This file is licensed to you under the Apache License,
+// Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+// or the MIT license (http://opensource.org/licenses/MIT),
+// at your option.
+
+// Unless required by applicable law or agreed to in writing,
+// this software is distributed on an "AS IS" BASIS, WITHOUT
+// WARRANTIES OR REPRESENTATIONS OF ANY KIND, either express or
+// implied. See the LICENSE-MIT and LICENSE-APACHE files for the
+// specific language governing permissions and limitations under
+// each license.
+
+//! # Cimple - C IMPLementation utilities
+//!
+//! A Rust library providing utilities and macros for creating safe, ergonomic C FFI bindings.
+//!
+//! ## Features
+//!
+//! - **Handle-based API**: Thread-safe handle management system for passing Rust objects to C
+//! - **Allocation tracking**: Prevents double-free of raw pointers with automatic leak detection
+//! - **Buffer safety**: Validates buffer sizes and pointer arithmetic
+//! - **FFI macros**: Ergonomic macros for null checks, string conversion, and error handling
+//!
+//! ## Example
+//!
+//! ```rust
+//! use cimple::{ptr_or_return_null, cstr_or_return_null, to_c_string};
+//!
+//! #[no_mangle]
+//! pub extern "C" fn process_string(input: *const std::os::raw::c_char) -> *mut std::os::raw::c_char {
+//!     // Convert C string to Rust String with automatic null check
+//!     let rust_string = cstr_or_return_null!(input);
+//!     
+//!     // Process the string
+//!     let result = rust_string.to_uppercase();
+//!     
+//!     // Convert back to C string (automatically tracked for memory safety)
+//!     to_c_string(result)
+//! }
+//! ```
+
+// Declare foundational modules first
+pub mod error;
+pub mod utils;
+
+// Then macros that depend on them
+#[macro_use]
+pub mod macros;
+
+// Re-export main types and functions for convenience
+pub use error::{Error, Result};
+pub use utils::{
+    free_c_bytes, free_c_string, get_allocations, get_handles, handle_to_ptr, ptr_to_handle,
+    safe_slice_from_raw_parts, to_c_bytes, to_c_string, track_bytes_allocation,
+    track_string_allocation, untrack_allocation, Handle, HandleValue,
+};

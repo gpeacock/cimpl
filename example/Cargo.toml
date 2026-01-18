@@ -1,0 +1,16 @@
+[package]
+name = "cimple-example"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gavin Peacock <gpeacock@adobe.com>"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+# This creates both static (.a) and dynamic (.so/.dylib/.dll) libraries
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+cimple = { path = ".." }
+
+[build-dependencies]
+cbindgen = "0.27"

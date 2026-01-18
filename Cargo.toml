@@ -1,0 +1,17 @@
+[package]
+name = "cimple"
+version = "0.1.0"
+description = "C IMPLementation utilities - FFI utilities and macros for creating safe, ergonomic C bindings"
+edition = "2021"
+authors = ["Gavin Peacock <gpeacock@adobe.com>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/cimple"
+homepage = "https://contentauthenticity.org"
+repository = "https://github.com/contentauth/c2pa-rs"
+keywords = ["ffi", "bindings", "c", "utilities", "macros"]
+categories = ["api-bindings", "development-tools::ffi"]
+
+[dependencies]
+thiserror = "2.0.17"
+
+[dev-dependencies]
