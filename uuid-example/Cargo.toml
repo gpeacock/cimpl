@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-cimple = { path = "../" }
+cimpl = { path = "../" }
 uuid = { version = "1.11", features = ["v4", "v7"] }
 
 [build-dependencies]

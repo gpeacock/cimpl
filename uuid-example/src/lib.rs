@@ -1,6 +1,6 @@
-//! # Cimple UUID Library
+//! # Cimpl UUID Library
 //!
-//! This library demonstrates how to use cimple to create safe C FFI bindings
+//! This library demonstrates how to use cimpl to create safe C FFI bindings
 //! for the Rust `uuid` crate (an external dependency). It showcases:
 //!
 //! - Wrapping external crate types (no opaque wrapper needed!)
@@ -12,7 +12,7 @@
 use std::os::raw::c_char;
 use std::str::FromStr;
 
-use cimple::{
+use cimpl::{
     box_tracked, cstr_or_return_null, define_error_codes, deref_or_return_false,
     deref_or_return_null, deref_or_return_zero, ok_or_return_null_with_table, to_c_bytes,
     to_c_string, Error,
@@ -164,7 +164,7 @@ pub extern "C" fn uuid_equals(a: *mut Uuid, b: *mut Uuid) -> bool {
 /// Use `cimple_free()` instead. This function is kept for API compatibility.
 #[no_mangle]
 pub extern "C" fn uuid_free(uuid: *mut Uuid) -> i32 {
-    cimple::cimple_free(uuid as *mut std::ffi::c_void)
+    cimpl::cimple_free(uuid as *mut std::ffi::c_void)
 }
 
 // ============================================================================

@@ -27,7 +27,7 @@
 
 use std::os::raw::c_char;
 
-use cimple::{
+use cimpl::{
     box_tracked, cstr_or_return_int, cstr_or_return_null, deref_mut_or_return_neg,
     deref_or_return_null, deref_or_return_zero, ptr_or_return_int, to_c_string, Error, ErrorCode,
 };
@@ -112,7 +112,7 @@ pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyString {
 /// - -1 on error (invalid pointer or already freed)
 #[no_mangle]
 pub extern "C" fn mystring_free(ptr: *mut MyString) -> i32 {
-    cimple::cimple_free(ptr as *mut std::ffi::c_void)
+    cimpl::cimple_free(ptr as *mut std::ffi::c_void)
 }
 
 // ============================================================================
@@ -223,7 +223,7 @@ pub extern "C" fn mystring_to_uppercase(ptr: *mut MyString) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mystring_string_free(str: *mut c_char) -> i32 {
     ptr_or_return_int!(str);
-    if unsafe { cimple::free_c_string(str) } {
+    if unsafe { cimpl::free_c_string(str) } {
         0
     } else {
         -1

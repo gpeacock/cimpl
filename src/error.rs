@@ -17,6 +17,14 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Type alias for error mapping tables
+///
+/// Each entry contains:
+/// - A matcher function to identify the error variant
+/// - A string name for the error (used in error messages)
+/// - An integer error code (for C FFI)
+pub type ErrorTable<E> = &'static [(fn(&E) -> bool, &'static str, i32)];
+
 // LAST_ERROR handling borrowed from Copyright (c) 2018 Michael Bryan
 thread_local! {
     static LAST_ERROR: RefCell<Option<Error>> = const { RefCell::new(None) };
@@ -197,7 +205,7 @@ impl Error {
     /// ```
     pub fn from_table<E: std::fmt::Display>(
         e: E,
-        table: &[(fn(&E) -> bool, &str, i32)],
+        table: ErrorTable<E>,
     ) -> Self {
         for (matcher, name, code) in table {
             if matcher(&e) {

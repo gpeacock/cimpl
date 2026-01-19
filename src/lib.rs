@@ -11,7 +11,7 @@
 // specific language governing permissions and limitations under
 // each license.
 
-//! # Cimple - C IMPLementation utilities
+//! # Cimpl - Simple C implementations from Rust
 //!
 //! A Rust library providing utilities and macros for creating safe, ergonomic C FFI bindings.
 //!
@@ -49,7 +49,7 @@ pub mod utils;
 pub mod macros;
 
 // Re-export main types and functions for convenience
-pub use error::{Error, ErrorCode, Result};
+pub use error::{Error, ErrorCode, ErrorTable, Result};
 pub use utils::{
     cimple_free, free_c_bytes, free_c_string, free_tracked_pointer, get_allocations,
     get_registry, safe_slice_from_raw_parts, to_c_bytes, to_c_string, track_arc, track_arc_mutex,
