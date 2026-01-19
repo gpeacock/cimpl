@@ -385,3 +385,112 @@ macro_rules! cstr_option {
 // ============================================================================
 // Core Flexible Macros (explicit "return" makes control flow clear)
 // ============================================================================
+
+// ============================================================================
+// Error Mapping Macro for Library-Specific Errors
+// ============================================================================
+
+/// Defines a mapping table from library errors to error codes
+///
+/// This macro generates a static lookup table that maps error patterns to error codes and names.
+/// The developer must first manually declare the error constants (so cbindgen can see them).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Step 1: Manually declare constants (cbindgen sees these)
+/// #[no_mangle]
+/// pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
+///
+/// // Step 2: Create mapping table
+/// define_error_codes! {
+///     error_type: uuid::Error,
+///     table_name: UUID_ERROR_TABLE,
+///     codes: {
+///         InvalidLength(_) => ("ParseError", ERROR_UUID_PARSE_ERROR),
+///         InvalidCharacter(_, _) => ("InvalidCharacter", ERROR_UUID_INVALID_CHARACTER),
+///     }
+/// }
+/// ```
+///
+/// This generates a static table that can be used with `Error::from_table()`:
+/// ```rust,ignore
+/// Err(e) => {
+///     Error::from_table(e, UUID_ERROR_TABLE).set_last();
+///     std::ptr::null_mut()
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_error_codes {
+    (error_type: $error_type:ty, table_name: $table_name:ident, codes: { $($pattern:pat => ($name:expr, $code:expr)),* $(,)? }) => {
+        static $table_name: &[(fn(&$error_type) -> bool, &str, i32)] = &[
+            $(
+                (|e: &$error_type| matches!(e, $pattern), $name, $code),
+            )*
+        ];
+    };
+}
+
+// ============================================================================
+// Result Handling with Error Tables
+// ============================================================================
+
+/// Unwraps a Result or returns with error mapped via table
+///
+/// This macro handles Result types by unwrapping Ok values or converting Err values
+/// using an error mapping table and returning early with a specified value.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
+///     let s_str = cstr_or_return_null!(s);
+///     let uuid = ok_or_return_null_with_table!(Uuid::from_str(&s_str), UUID_ERROR_TABLE);
+///     box_tracked!(uuid)
+/// }
+/// ```
+#[macro_export]
+macro_rules! ok_or_return_with_table {
+    ($result:expr, $table:expr, $err_val:expr) => {
+        match $result {
+            Ok(val) => val,
+            Err(e) => {
+                $crate::Error::from_table(e, $table).set_last();
+                return $err_val;
+            }
+        }
+    };
+}
+
+/// Unwraps a Result or returns NULL (for pointer-returning functions)
+#[macro_export]
+macro_rules! ok_or_return_null_with_table {
+    ($result:expr, $table:expr) => {
+        $crate::ok_or_return_with_table!($result, $table, std::ptr::null_mut())
+    };
+}
+
+/// Unwraps a Result or returns -1 (for integer-returning functions)
+#[macro_export]
+macro_rules! ok_or_return_neg_with_table {
+    ($result:expr, $table:expr) => {
+        $crate::ok_or_return_with_table!($result, $table, -1)
+    };
+}
+
+/// Unwraps a Result or returns 0 (for functions where 0 indicates error)
+#[macro_export]
+macro_rules! ok_or_return_zero_with_table {
+    ($result:expr, $table:expr) => {
+        $crate::ok_or_return_with_table!($result, $table, 0)
+    };
+}
+
+/// Unwraps a Result or returns false (for bool-returning functions)
+#[macro_export]
+macro_rules! ok_or_return_false_with_table {
+    ($result:expr, $table:expr) => {
+        $crate::ok_or_return_with_table!($result, $table, false)
+    };
+}
+

@@ -1,0 +1,14 @@
+[package]
+name = "cimple-uuid"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+cimple = { path = "../" }
+uuid = { version = "1.11", features = ["v4", "v7"] }
+
+[build-dependencies]
+cbindgen = "0.27"

@@ -56,3 +56,7 @@ pub use utils::{
     track_box, track_bytes_allocation, track_string_allocation, untrack_allocation,
     validate_pointer,
 };
+
+// Re-export paste for use by our macros
+#[doc(hidden)]
+pub use paste;
