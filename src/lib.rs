@@ -25,7 +25,7 @@
 //! ## Example
 //!
 //! ```rust
-//! use cimple::{ptr_or_return_null, cstr_or_return_null, to_c_string};
+//! use cimpl::{ptr_or_return_null, cstr_or_return_null, to_c_string};
 //!
 //! #[no_mangle]
 //! pub extern "C" fn process_string(input: *const std::os::raw::c_char) -> *mut std::os::raw::c_char {
@@ -51,10 +51,9 @@ pub mod macros;
 // Re-export main types and functions for convenience
 pub use error::{Error, ErrorCode, ErrorTable, Result};
 pub use utils::{
-    cimple_free, free_c_bytes, free_c_string, free_tracked_pointer, get_allocations,
-    get_registry, safe_slice_from_raw_parts, to_c_bytes, to_c_string, track_arc, track_arc_mutex,
-    track_box, track_bytes_allocation, track_string_allocation, untrack_allocation,
-    validate_pointer,
+    cimple_free, free_c_bytes, free_c_string, free_tracked_pointer, get_allocations, get_registry,
+    safe_slice_from_raw_parts, to_c_bytes, to_c_string, track_arc, track_arc_mutex, track_box,
+    track_bytes_allocation, track_string_allocation, untrack_allocation, validate_pointer,
 };
 
 // Re-export paste for use by our macros

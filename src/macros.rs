@@ -227,7 +227,9 @@ macro_rules! cstr_or_return {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => cstr.to_string_lossy().into_owned(),
                 Err(_) => {
-                    $crate::Error::set_last($crate::Error::StringTooLong(stringify!($ptr).to_string()));
+                    $crate::Error::set_last($crate::Error::StringTooLong(
+                        stringify!($ptr).to_string(),
+                    ));
                     return $err_val;
                 }
             }
@@ -253,7 +255,9 @@ macro_rules! cstr_or_return_with_limit {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => cstr.to_string_lossy().into_owned(),
                 Err(_) => {
-                    $crate::Error::set_last($crate::Error::StringTooLong(stringify!($ptr).to_string()));
+                    $crate::Error::set_last($crate::Error::StringTooLong(
+                        stringify!($ptr).to_string(),
+                    ));
                     return $err_val;
                 }
             }
@@ -374,7 +378,9 @@ macro_rules! cstr_option {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => Some(cstr.to_string_lossy().into_owned()),
                 Err(_) => {
-                    $crate::Error::set_last($crate::Error::StringTooLong(stringify!($ptr).to_string()));
+                    $crate::Error::set_last($crate::Error::StringTooLong(
+                        stringify!($ptr).to_string(),
+                    ));
                     None
                 }
             }
@@ -493,4 +499,3 @@ macro_rules! ok_or_return_false_with_table {
         $crate::ok_or_return_with_table!($result, $table, false)
     };
 }
-

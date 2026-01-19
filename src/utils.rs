@@ -50,10 +50,7 @@ impl PointerRegistry {
     /// Track a pointer with its type and cleanup function
     fn track(&self, ptr: usize, type_id: TypeId, cleanup: CleanupFn) {
         if ptr != 0 {
-            self.tracked
-                .lock()
-                .unwrap()
-                .insert(ptr, (type_id, cleanup));
+            self.tracked.lock().unwrap().insert(ptr, (type_id, cleanup));
         }
     }
 
@@ -173,8 +170,8 @@ pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
 ///
 /// # Example
 /// ```rust,no_run
-/// use cimple::{track_box, free_tracked_pointer};
-/// 
+/// use cimpl::{track_box, free_tracked_pointer};
+///
 /// let ptr = Box::into_raw(Box::new(42));
 /// track_box(ptr);
 /// // ... use ptr ...
@@ -203,7 +200,7 @@ pub fn free_tracked_pointer(ptr: *mut u8) -> Result<(), Error> {
 /// ```c
 /// MyString* str = mystring_create("hello");
 /// char* value = mystring_get_value(str);
-/// 
+///
 /// cimple_free(value);  // Free the returned string
 /// cimple_free(str);    // Free the MyString - same function!
 /// ```
