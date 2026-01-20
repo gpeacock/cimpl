@@ -18,13 +18,13 @@ const libPath = path.join(__dirname, `../../target/release/libcimple_uuid.${libE
 const lib = koffi.load(libPath);
 
 // Error codes (from header)
-const ERROR_OK = 0;
-const ERROR_NULL_PARAMETER = 1;
-const ERROR_STRING_TOO_LONG = 2;
-const ERROR_INVALID_HANDLE = 3;
-const ERROR_WRONG_HANDLE_TYPE = 4;
-const ERROR_OTHER = 5;
-const ERROR_UUID_PARSE_ERROR = 100;
+const UUID_ERROR_OK = 0;
+const UUID_ERROR_NULL_PARAMETER = 1;
+const UUID_ERROR_STRING_TOO_LONG = 2;
+const UUID_ERROR_INVALID_HANDLE = 3;
+const UUID_ERROR_WRONG_HANDLE_TYPE = 4;
+const UUID_ERROR_OTHER = 5;
+const UUID_ERROR_PARSE_ERROR = 100;
 
 // Define opaque UUID pointer type
 const UuidPtr = koffi.pointer(koffi.opaque('Uuid'));
@@ -50,7 +50,7 @@ const uuid_error_code = lib.func('uuid_error_code', 'int32', []);
 const uuid_last_error = lib.func('uuid_last_error', 'str', []);
 const uuid_clear_error = lib.func('uuid_clear_error', 'void', []);
 
-const cimple_free = lib.func('cimple_free', 'int32', [koffi.pointer('void')]);
+const uuid_free = lib.func('uuid_free', 'int32', [koffi.pointer('void')]);
 
 // Error classes
 class UuidError extends Error {
@@ -98,11 +98,11 @@ class OtherError extends UuidError {
 
 // Map error codes to error classes
 const ERROR_CLASSES = {
-  [ERROR_NULL_PARAMETER]: NullParameterError,
-  [ERROR_INVALID_HANDLE]: InvalidHandleError,
-  [ERROR_WRONG_HANDLE_TYPE]: WrongHandleTypeError,
-  [ERROR_UUID_PARSE_ERROR]: ParseError,
-  [ERROR_OTHER]: OtherError,
+  [UUID_ERROR_NULL_PARAMETER]: NullParameterError,
+  [UUID_ERROR_INVALID_HANDLE]: InvalidHandleError,
+  [UUID_ERROR_WRONG_HANDLE_TYPE]: WrongHandleTypeError,
+  [UUID_ERROR_PARSE_ERROR]: ParseError,
+  [UUID_ERROR_OTHER]: OtherError,
 };
 
 /**
@@ -110,7 +110,7 @@ const ERROR_CLASSES = {
  */
 function checkError() {
   const code = uuid_error_code();
-  if (code !== ERROR_OK) {
+  if (code !== UUID_ERROR_OK) {
     const message = uuid_last_error() || 'Unknown error';
     uuid_clear_error();
     
@@ -220,7 +220,7 @@ class Uuid {
     
     // Note: We should free bytesPtr, but koffi handles strings differently
     // The uuid_as_bytes returns a pointer we need to free
-    cimple_free(bytesPtr);
+    uuid_free(bytesPtr);
     
     return buffer;
   }
@@ -271,7 +271,7 @@ class Uuid {
    */
   free() {
     if (!this._freed && this._handle) {
-      cimple_free(this._handle);
+      uuid_free(this._handle);
       this._freed = true;
     }
   }
@@ -309,11 +309,11 @@ module.exports = {
   OtherError,
   
   // Error codes
-  ERROR_OK,
-  ERROR_NULL_PARAMETER,
-  ERROR_STRING_TOO_LONG,
-  ERROR_INVALID_HANDLE,
-  ERROR_WRONG_HANDLE_TYPE,
-  ERROR_OTHER,
-  ERROR_UUID_PARSE_ERROR,
+  UUID_ERROR_OK,
+  UUID_ERROR_NULL_PARAMETER,
+  UUID_ERROR_STRING_TOO_LONG,
+  UUID_ERROR_INVALID_HANDLE,
+  UUID_ERROR_WRONG_HANDLE_TYPE,
+  UUID_ERROR_OTHER,
+  UUID_ERROR_PARSE_ERROR,
 };

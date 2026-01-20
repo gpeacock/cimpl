@@ -24,23 +24,24 @@ use uuid::Uuid;
 // Error Code Definitions
 // ============================================================================
 
-// Core cimple infrastructure errors (0-99)
+// Core cimpl infrastructure errors (0-99)
+// Note: Prefixed with UUID_ to avoid clashing with other C libraries
 #[no_mangle]
-pub static ERROR_OK: i32 = 0;
+pub static UUID_ERROR_OK: i32 = 0;
 #[no_mangle]
-pub static ERROR_NULL_PARAMETER: i32 = 1;
+pub static UUID_ERROR_NULL_PARAMETER: i32 = 1;
 #[no_mangle]
-pub static ERROR_STRING_TOO_LONG: i32 = 2;
+pub static UUID_ERROR_STRING_TOO_LONG: i32 = 2;
 #[no_mangle]
-pub static ERROR_INVALID_HANDLE: i32 = 3;
+pub static UUID_ERROR_INVALID_HANDLE: i32 = 3;
 #[no_mangle]
-pub static ERROR_WRONG_HANDLE_TYPE: i32 = 4;
+pub static UUID_ERROR_WRONG_HANDLE_TYPE: i32 = 4;
 #[no_mangle]
-pub static ERROR_OTHER: i32 = 5;
+pub static UUID_ERROR_OTHER: i32 = 5;
 
-// UUID library-specific errors (100+) - manually declared so cbindgen sees them
+// UUID library-specific errors (100+)
 #[no_mangle]
-pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
+pub static UUID_ERROR_PARSE_ERROR: i32 = 100;
 
 // ============================================================================
 // Error Mapper
@@ -53,7 +54,7 @@ pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
 fn map_uuid_error(_e: &uuid::Error) -> (i32, &'static str) {
     // For uuid crate, all errors are parse errors
     // Could be extended to match on specific error types if needed
-    (ERROR_UUID_PARSE_ERROR, "ParseError")
+    (UUID_ERROR_PARSE_ERROR, "ParseError")
 }
 
 // Register the error mapper - ok_or_return_* macros will use this
@@ -166,12 +167,19 @@ pub extern "C" fn uuid_equals(a: *mut Uuid, b: *mut Uuid) -> bool {
 // ============================================================================
 
 /// Frees a UUID object.
+/// Frees any pointer allocated by this library.
 ///
-/// # Deprecated
-/// Use `cimple_free()` instead. This function is kept for API compatibility.
+/// This is a convenience wrapper around `cimpl::cimple_free()` that provides
+/// a library-specific API. It can free:
+/// - Uuid objects (returned by uuid_new_*, uuid_parse, etc.)
+/// - Strings (returned by uuid_to_string, uuid_last_error, etc.)
+/// - Byte arrays (returned by uuid_as_bytes)
+///
+/// # Safety
+/// The pointer must have been allocated by this library, or be NULL.
 #[no_mangle]
-pub extern "C" fn uuid_free(uuid: *mut Uuid) -> i32 {
-    cimpl::cimple_free(uuid as *mut std::ffi::c_void)
+pub extern "C" fn uuid_free(ptr: *mut std::ffi::c_void) -> i32 {
+    cimpl::cimple_free(ptr)
 }
 
 // ============================================================================

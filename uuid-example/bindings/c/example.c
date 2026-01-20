@@ -9,7 +9,7 @@ void print_error() {
     
     if (msg != NULL) {
         fprintf(stderr, "Error %d: %s\n", code, msg);
-        cimple_free(msg);
+        uuid_free(msg);
     } else {
         fprintf(stderr, "Error %d: (no message)\n", code);
     }
@@ -30,7 +30,7 @@ int main() {
     char* str1 = uuid_to_string(uuid1);
     if (str1) {
         printf("   Generated: %s\n", str1);
-        cimple_free(str1);
+        uuid_free(str1);
     }
     printf("\n");
 
@@ -41,7 +41,7 @@ int main() {
         char* str2 = uuid_to_string(uuid2);
         if (str2) {
             printf("   Generated: %s\n", str2);
-            cimple_free(str2);
+            uuid_free(str2);
         }
     }
     printf("\n");
@@ -60,10 +60,10 @@ int main() {
         char* urn = uuid_to_urn(uuid3);
         if (urn) {
             printf("   URN format: %s\n", urn);
-            cimple_free(urn);
+            uuid_free(urn);
         }
         
-        cimple_free(uuid3);
+        uuid_free(uuid3);
     }
     printf("\n");
 
@@ -98,11 +98,11 @@ int main() {
         char* nil_str = uuid_to_string(nil);
         if (nil_str) {
             printf("   Nil UUID: %s\n", nil_str);
-            cimple_free(nil_str);
+            uuid_free(nil_str);
         }
         printf("   Is nil? %s\n", uuid_is_nil(nil) ? "yes" : "no");
         printf("   Is max? %s\n", uuid_is_max(nil) ? "yes" : "no");
-        cimple_free(nil);
+        uuid_free(nil);
     }
     printf("\n");
 
@@ -113,11 +113,11 @@ int main() {
         char* max_str = uuid_to_string(max_uuid);
         if (max_str) {
             printf("   Max UUID: %s\n", max_str);
-            cimple_free(max_str);
+            uuid_free(max_str);
         }
         printf("   Is nil? %s\n", uuid_is_nil(max_uuid) ? "yes" : "no");
         printf("   Is max? %s\n", uuid_is_max(max_uuid) ? "yes" : "no");
-        cimple_free(max_uuid);
+        uuid_free(max_uuid);
     }
     printf("\n");
 
@@ -131,23 +131,23 @@ int main() {
             if (i == 3 || i == 5 || i == 7 || i == 9) printf("-");
         }
         printf("\n");
-        cimple_free((void*)bytes);
+        uuid_free((void*)bytes);
     }
     printf("\n");
 
-    // Test 9: Clean up - universal cimple_free works for everything!
-    printf("9. Cleaning up with universal cimple_free()...\n");
-    if (cimple_free(uuid1) == 0) {
+    // Test 9: Clean up - universal uuid_free works for everything!
+    printf("9. Cleaning up with universal uuid_free()...\n");
+    if (uuid_free(uuid1) == 0) {
         printf("   ✓ uuid1 freed\n");
     }
-    if (cimple_free(uuid2) == 0) {
+    if (uuid_free(uuid2) == 0) {
         printf("   ✓ uuid2 freed\n");
     }
     printf("\n");
 
     // Test 10: Double-free protection
     printf("10. Testing double-free protection...\n");
-    if (cimple_free(uuid1) != 0) {
+    if (uuid_free(uuid1) != 0) {
         printf("   ✓ Double-free correctly detected\n");
         printf("   ");
         print_error();

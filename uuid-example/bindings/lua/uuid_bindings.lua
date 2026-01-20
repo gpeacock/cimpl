@@ -13,13 +13,13 @@ ffi.cdef[[
     typedef struct Uuid Uuid;
     
     // Error codes
-    static const int32_t ERROR_OK = 0;
-    static const int32_t ERROR_NULL_PARAMETER = 1;
-    static const int32_t ERROR_STRING_TOO_LONG = 2;
-    static const int32_t ERROR_INVALID_HANDLE = 3;
-    static const int32_t ERROR_WRONG_HANDLE_TYPE = 4;
-    static const int32_t ERROR_OTHER = 5;
-    static const int32_t ERROR_UUID_PARSE_ERROR = 100;
+    static const int32_t UUID_ERROR_OK = 0;
+    static const int32_t UUID_ERROR_NULL_PARAMETER = 1;
+    static const int32_t UUID_ERROR_STRING_TOO_LONG = 2;
+    static const int32_t UUID_ERROR_INVALID_HANDLE = 3;
+    static const int32_t UUID_ERROR_WRONG_HANDLE_TYPE = 4;
+    static const int32_t UUID_ERROR_OTHER = 5;
+    static const int32_t UUID_ERROR_PARSE_ERROR = 100;
     
     // UUID functions
     Uuid* uuid_new_v4(void);
@@ -42,7 +42,7 @@ ffi.cdef[[
     char* uuid_last_error(void);
     void uuid_clear_error(void);
     
-    int32_t cimple_free(void* ptr);
+    int32_t uuid_free(void* ptr);
     
     // Standard library functions for string handling
     void free(void* ptr);
@@ -73,7 +73,7 @@ local function check_error()
         local message = "Unknown error"
         if msg_ptr ~= nil then
             message = ffi.string(msg_ptr)
-            lib.cimple_free(msg_ptr)
+            lib.uuid_free(msg_ptr)
         end
         lib.uuid_clear_error()
         
@@ -137,7 +137,7 @@ function Uuid:to_string()
     end
     
     local str = ffi.string(result)
-    lib.cimple_free(result)
+    lib.uuid_free(result)
     return str
 end
 
@@ -152,7 +152,7 @@ function Uuid:to_urn()
     end
     
     local str = ffi.string(result)
-    lib.cimple_free(result)
+    lib.uuid_free(result)
     return str
 end
 
@@ -172,7 +172,7 @@ function Uuid:to_bytes()
     end
     
     -- Cast to void* for cimple_free
-    lib.cimple_free(ffi.cast("void*", result))
+    lib.uuid_free(ffi.cast("void*", result))
     return bytes
 end
 
@@ -223,7 +223,7 @@ end
 
 function Uuid:__gc()
     if not self._freed and self._handle ~= nil then
-        lib.cimple_free(self._handle)
+        lib.uuid_free(self._handle)
         self._freed = true
     end
 end
@@ -231,7 +231,7 @@ end
 -- Explicit free (optional, GC will handle it)
 function Uuid:free()
     if not self._freed and self._handle ~= nil then
-        lib.cimple_free(self._handle)
+        lib.uuid_free(self._handle)
         self._freed = true
     end
 end
@@ -246,11 +246,11 @@ return {
     max_uuid = Uuid.max_uuid,
     
     -- Error codes (for reference)
-    ERROR_OK = 0,
-    ERROR_NULL_PARAMETER = 1,
-    ERROR_STRING_TOO_LONG = 2,
-    ERROR_INVALID_HANDLE = 3,
-    ERROR_WRONG_HANDLE_TYPE = 4,
-    ERROR_OTHER = 5,
-    ERROR_UUID_PARSE_ERROR = 100,
+    UUID_ERROR_OK = 0,
+    UUID_ERROR_NULL_PARAMETER = 1,
+    UUID_ERROR_STRING_TOO_LONG = 2,
+    UUID_ERROR_INVALID_HANDLE = 3,
+    UUID_ERROR_WRONG_HANDLE_TYPE = 4,
+    UUID_ERROR_OTHER = 5,
+    UUID_ERROR_PARSE_ERROR = 100,
 }

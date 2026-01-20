@@ -22,13 +22,13 @@ UuidPtr = POINTER(_UuidHandle)
 
 
 # Error codes (from header)
-ERROR_OK = 0
-ERROR_NULL_PARAMETER = 1
-ERROR_STRING_TOO_LONG = 2
-ERROR_INVALID_HANDLE = 3
-ERROR_WRONG_HANDLE_TYPE = 4
-ERROR_OTHER = 5
-ERROR_UUID_PARSE_ERROR = 100
+UUID_ERROR_OK = 0
+UUID_ERROR_NULL_PARAMETER = 1
+UUID_ERROR_STRING_TOO_LONG = 2
+UUID_ERROR_INVALID_HANDLE = 3
+UUID_ERROR_WRONG_HANDLE_TYPE = 4
+UUID_ERROR_OTHER = 5
+UUID_ERROR_PARSE_ERROR = 100
 
 
 # Exception hierarchy based on error codes
@@ -67,11 +67,11 @@ class OtherError(UuidError):
 
 # Map error codes to exception classes
 _ERROR_EXCEPTIONS = {
-    ERROR_NULL_PARAMETER: NullParameterError,
-    ERROR_INVALID_HANDLE: InvalidHandleError,
-    ERROR_WRONG_HANDLE_TYPE: WrongHandleTypeError,
-    ERROR_UUID_PARSE_ERROR: ParseError,
-    ERROR_OTHER: OtherError,
+    UUID_ERROR_NULL_PARAMETER: NullParameterError,
+    UUID_ERROR_INVALID_HANDLE: InvalidHandleError,
+    UUID_ERROR_WRONG_HANDLE_TYPE: WrongHandleTypeError,
+    UUID_ERROR_PARSE_ERROR: ParseError,
+    UUID_ERROR_OTHER: OtherError,
 }
 
 
@@ -121,17 +121,17 @@ _lib.uuid_last_error.restype = c_char_p
 _lib.uuid_clear_error.argtypes = []
 _lib.uuid_clear_error.restype = None
 
-_lib.cimple_free.argtypes = [c_void_p]
-_lib.cimple_free.restype = c_int32
+_lib.uuid_free.argtypes = [c_void_p]
+_lib.uuid_free.restype = c_int32
 
 
 def _check_error_and_raise():
     """Check for errors and raise appropriate Python exception"""
     code = _lib.uuid_error_code()
-    if code != ERROR_OK:
+    if code != UUID_ERROR_OK:
         msg_ptr = _lib.uuid_last_error()
         message = msg_ptr.decode('utf-8') if msg_ptr else "Unknown error"
-        _lib.cimple_free(msg_ptr)
+        _lib.uuid_free(msg_ptr)
         _lib.uuid_clear_error()
         
         exception_class = _ERROR_EXCEPTIONS.get(code, UuidError)
@@ -189,7 +189,7 @@ class Uuid:
         if not result:
             _check_error_and_raise()
         s = result.decode('utf-8')
-        _lib.cimple_free(result)
+        _lib.uuid_free(result)
         return s
     
     def to_urn(self) -> str:
@@ -198,7 +198,7 @@ class Uuid:
         if not result:
             _check_error_and_raise()
         s = result.decode('utf-8')
-        _lib.cimple_free(result)
+        _lib.uuid_free(result)
         return s
     
     def to_bytes(self) -> bytes:
@@ -208,7 +208,7 @@ class Uuid:
             _check_error_and_raise()
         # Copy the bytes before freeing
         byte_array = bytes(result[i] for i in range(16))
-        _lib.cimple_free(result)
+        _lib.uuid_free(result)
         return byte_array
     
     def is_nil(self) -> bool:
@@ -252,7 +252,7 @@ class Uuid:
     def __del__(self):
         """Free the UUID when Python object is garbage collected"""
         if hasattr(self, '_handle') and self._handle:
-            _lib.cimple_free(self._handle)
+            _lib.uuid_free(self._handle)
             self._handle = None
 
 
