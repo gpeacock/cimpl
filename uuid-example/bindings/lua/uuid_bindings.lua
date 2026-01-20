@@ -1,7 +1,7 @@
 --[[
-Lua FFI bindings for the cimple-uuid library
+Lua FFI bindings for the cimpl-uuid library
 
-Auto-generated from cimple_uuid.h
+Auto-generated from cimpl_uuid.h
 Requires LuaJIT with FFI support
 ]]
 
@@ -53,7 +53,7 @@ local lib_path = debug.getinfo(1).source:match("@?(.*/)")
 if lib_path == nil then
     lib_path = "./"
 end
-local lib = ffi.load(lib_path .. "../../target/release/libcimple_uuid.dylib")
+local lib = ffi.load(lib_path .. "../../target/release/libcimpl_uuid.dylib")
 
 -- Error handling
 local ERROR_NAMES = {
@@ -171,7 +171,7 @@ function Uuid:to_bytes()
         bytes[i + 1] = result[i]
     end
     
-    -- Cast to void* for cimple_free
+    -- Cast to void* for cimpl_free
     lib.uuid_free(ffi.cast("void*", result))
     return bytes
 end

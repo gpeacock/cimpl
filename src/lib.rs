@@ -51,7 +51,7 @@ pub mod macros;
 // Re-export main types and functions for convenience
 pub use error::{Error, ErrorCode, ErrorTable, Result};
 pub use utils::{
-    cimple_free, free_c_bytes, free_c_string, free_tracked_pointer, get_allocations, get_registry,
+    cimpl_free, free_c_bytes, free_c_string, free_tracked_pointer, get_allocations, get_registry,
     safe_slice_from_raw_parts, to_c_bytes, to_c_string, track_arc, track_arc_mutex, track_box,
     track_bytes_allocation, track_string_allocation, untrack_allocation, validate_pointer,
 };

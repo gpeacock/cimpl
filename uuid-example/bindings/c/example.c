@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "cimple_uuid.h"
+#include "cimpl_uuid.h"
 
 void print_error() {
     int32_t code = uuid_error_code();
@@ -16,7 +16,7 @@ void print_error() {
 }
 
 int main() {
-    printf("=== Cimple UUID Library Demo ===\n\n");
+    printf("=== Cimpl UUID Library Demo ===\n\n");
 
     // Test 1: Generate random UUID (v4)
     printf("1. Generating random UUID (v4)...\n");

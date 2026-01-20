@@ -1,5 +1,5 @@
 [package]
-name = "cimple-example"
+name = "cimpl-example"
 version = "0.1.0"
 edition = "2021"
 authors = ["Gavin Peacock <gpeacock@adobe.com>"]

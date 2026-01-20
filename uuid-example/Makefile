@@ -1,4 +1,4 @@
-# Makefile for cimple-uuid example
+# Makefile for cimpl-uuid example
 
 .PHONY: all clean run-c build-rust help
 
@@ -30,15 +30,15 @@ build-rust:
 	cargo build --release
 	@echo ""
 	@echo "Build complete! Generated files:"
-	@echo "  Static library:  target/release/libcimple_uuid.a"
-	@echo "  Dynamic library: target/release/libcimple_uuid.$(DYLIB_EXT)"
-	@echo "  C header:        include/cimple_uuid.h"
+	@echo "  Static library:  target/release/libcimpl_uuid.a"
+	@echo "  Dynamic library: target/release/libcimpl_uuid.$(DYLIB_EXT)"
+	@echo "  C header:        include/cimpl_uuid.h"
 
 example-static: build-rust bindings/c/example.c
 	@echo "Compiling C example (static linking)..."
 	gcc bindings/c/example.c -o example \
 		-Iinclude \
-		target/release/libcimple_uuid.a \
+		target/release/libcimpl_uuid.a \
 		-lpthread $(EXTRA_LIBS) \
 		-Wall -Wextra
 

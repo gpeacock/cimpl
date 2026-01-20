@@ -54,7 +54,7 @@ thread_local! {
 ///
 /// pub enum MyLibError {
 ///     // Wrap cimpl errors (codes 1-999)
-///     Cimple(cimpl::Error),
+///     Cimpl(cimpl::Error),
 ///     
 ///     // Custom errors (codes 1000+)
 ///     DatabaseError(String),      // code 1000
@@ -65,7 +65,7 @@ thread_local! {
 /// impl MyLibError {
 ///     pub fn code(&self) -> i32 {
 ///         match self {
-///             MyLibError::Cimple(e) => e.code_as_i32(),
+///             MyLibError::Cimpl(e) => e.code_as_i32(),
 ///             MyLibError::DatabaseError(_) => 1000,
 ///             MyLibError::NetworkTimeout(_) => 1001,
 ///             MyLibError::InvalidCredentials(_) => 1002,
@@ -74,7 +74,7 @@ thread_local! {
 ///     
 ///     pub fn to_string(&self) -> String {
 ///         match self {
-///             MyLibError::Cimple(e) => e.to_string(),
+///             MyLibError::Cimpl(e) => e.to_string(),
 ///             MyLibError::DatabaseError(msg) => format!("DatabaseError: {}", msg),
 ///             MyLibError::NetworkTimeout(msg) => format!("NetworkTimeout: {}", msg),
 ///             MyLibError::InvalidCredentials(msg) => format!("InvalidCredentials: {}", msg),

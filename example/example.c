@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "include/cimple_example.h"
+#include "include/cimpl_example.h"
 
 // Helper to print error details after a function fails
 // Only call this when a function returns an error (NULL or -1)
@@ -18,7 +18,7 @@ void print_error() {
 }
 
 int main() {
-    printf("=== Cimple Example: String Manipulation Library ===\n\n");
+    printf("=== Cimpl Example: String Manipulation Library ===\n\n");
 
     // Test 1: Create a string
     printf("1. Creating string with 'Hello, World!'...\n");
@@ -36,7 +36,7 @@ int main() {
     if (value != NULL) {
         printf("   Value: '%s'\n", value);
         printf("   Length: %zu bytes\n", mystring_len(str));
-        cimple_free(value);  // Universal free!
+        cimpl_free(value);  // Universal free!
     } else {
         print_error();
     }
@@ -47,7 +47,7 @@ int main() {
     char* upper = mystring_to_uppercase(str);
     if (upper != NULL) {
         printf("   Uppercase: '%s'\n", upper);
-        cimple_free(upper);  // Universal free!
+        cimpl_free(upper);  // Universal free!
     } else {
         print_error();
     }
@@ -59,7 +59,7 @@ int main() {
         value = mystring_get_value(str);
         if (value != NULL) {
             printf("   Result: '%s'\n", value);
-            cimple_free(value);
+            cimpl_free(value);
         }
     } else {
         print_error();
@@ -72,7 +72,7 @@ int main() {
         value = mystring_get_value(str);
         if (value != NULL) {
             printf("   New value: '%s'\n", value);
-            cimple_free(value);
+            cimpl_free(value);
         }
     } else {
         print_error();
@@ -90,9 +90,9 @@ int main() {
     }
     printf("\n");
 
-    // Test 7: Clean up - use universal cimple_free!
-    printf("7. Freeing the string with cimple_free()...\n");
-    if (cimple_free(str) == 0) {
+    // Test 7: Clean up - use universal cimpl_free!
+    printf("7. Freeing the string with cimpl_free()...\n");
+    if (cimpl_free(str) == 0) {
         printf("   ✓ String freed successfully\n");
     } else {
         print_error();
@@ -101,7 +101,7 @@ int main() {
 
     // Test 8: Double-free detection
     printf("8. Testing double-free protection...\n");
-    if (cimple_free(str) != 0) {
+    if (cimpl_free(str) != 0) {
         // Function returned -1, so NOW we check error details
         printf("   ✓ Double-free correctly detected and prevented\n");
         printf("   ");

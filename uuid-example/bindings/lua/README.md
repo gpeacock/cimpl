@@ -55,7 +55,7 @@ luajit test.lua
 ## AI Generation
 
 To generate this binding with AI, provide:
-1. The C header file (`include/cimple_uuid.h`)
+1. The C header file (`include/cimpl_uuid.h`)
 2. A prompt like: "Generate LuaJIT FFI bindings with metatables, error handling, and garbage collection"
 
 The header includes comprehensive documentation that AI models can use to generate similar code.

@@ -5,7 +5,7 @@ fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let output_file = PathBuf::from(&crate_dir)
         .join("include")
-        .join("cimple_example.h");
+        .join("cimpl_example.h");
 
     // Create include directory if it doesn't exist
     if let Some(parent) = output_file.parent() {

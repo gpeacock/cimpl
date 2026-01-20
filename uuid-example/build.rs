@@ -6,7 +6,7 @@ fn main() {
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR environment variable not set");
     let output_file = PathBuf::from(&crate_dir)
         .join("include")
-        .join("cimple_uuid.h")
+        .join("cimpl_uuid.h")
         .display()
         .to_string();
 

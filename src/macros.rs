@@ -280,7 +280,7 @@ macro_rules! ok_or_return {
             }
         }
     };
-    // For cimple Error type results (no conversion needed)
+    // For cimpl Error type results (no conversion needed)
     (@local $result:expr, $transform:expr, $err_val:expr) => {
         match $result {
             Ok(value) => $transform(value),

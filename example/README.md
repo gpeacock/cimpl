@@ -1,6 +1,6 @@
-# Cimple Example Library
+# Cimpl Example Library
 
-A complete example demonstrating how to use the `cimple` utilities to create safe, ergonomic C FFI bindings from Rust.
+A complete example demonstrating how to use the `cimpl` utilities to create safe, ergonomic C FFI bindings from Rust.
 
 ## What This Example Shows
 
@@ -17,26 +17,26 @@ This example library demonstrates:
 
 ```
 Rust (Safe) → C API (Simple) → Target Language (AI-generated)
-  [cimple]      [cbindgen]         [AI tooling]
+  [cimpl]      [cbindgen]         [AI tooling]
 ```
 
 ### Stage 1: Write Safe Rust FFI
 
-The Rust code uses `cimple` macros for safety:
+The Rust code uses `cimpl` macros for safety:
 
 ```rust
 #[no_mangle]
 pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyStringHandle {
     let initial_str = cstr_or_return_null!(initial);  // Safe C string conversion
     let my_string = MyString::new(initial_str);
-    let handle = cimple::get_handles().insert(my_string);  // Thread-safe handle
-    cimple::handle_to_ptr::<MyStringHandle>(handle)
+    let handle = cimpl::get_handles().insert(my_string);  // Thread-safe handle
+    cimpl::handle_to_ptr::<MyStringHandle>(handle)
 }
 ```
 
 ### Stage 2: Generate C Header
 
-Running `cargo build` automatically generates `include/cimple_example.h` with full documentation:
+Running `cargo build` automatically generates `include/cimpl_example.h` with full documentation:
 
 ```c
 /**
@@ -66,9 +66,9 @@ cargo build --release
 ```
 
 This generates:
-- **Static library**: `target/release/libcimple_example.a`
-- **Dynamic library**: `target/release/libcimple_example.so` (Linux), `.dylib` (macOS), or `.dll` (Windows)
-- **C header**: `include/cimple_example.h`
+- **Static library**: `target/release/libcimpl_example.a`
+- **Dynamic library**: `target/release/libcimpl_example.so` (Linux), `.dylib` (macOS), or `.dll` (Windows)
+- **C header**: `include/cimpl_example.h`
 
 ### Run the Tests
 
@@ -85,7 +85,7 @@ Create `example.c`:
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include "include/cimple_example.h"
+#include "include/cimpl_example.h"
 
 int main() {
     // Create a new string object
@@ -134,7 +134,7 @@ int main() {
 gcc example.c -o example \
     -I./example/include \
     -L./target/release \
-    -lcimple_example
+    -lcimpl_example
 
 # Set library path and run
 export LD_LIBRARY_PATH=./target/release:$LD_LIBRARY_PATH  # Linux
@@ -144,7 +144,7 @@ export DYLD_LIBRARY_PATH=./target/release:$DYLD_LIBRARY_PATH  # macOS
 # Using static library
 gcc example.c -o example \
     -I./example/include \
-    ./target/release/libcimple_example.a \
+    ./target/release/libcimpl_example.a \
     -lpthread -ldl -lm
 ./example
 ```
@@ -208,7 +208,7 @@ example/
 ├── src/
 │   └── lib.rs           # Example library implementation
 ├── include/             # Generated C headers (created by build.rs)
-│   └── cimple_example.h
+│   └── cimpl_example.h
 └── README.md            # This file
 ```
 
@@ -218,7 +218,7 @@ To create your own library:
 
 1. **Copy this example as a template**
 2. **Replace `MyString` with your own Rust types**
-3. **Use cimple macros for safety**:
+3. **Use cimpl macros for safety**:
    - `cstr_or_return_null!` for string parameters
    - `ptr_or_return_int!` for pointer checks
    - `guard_handle_or_null!` for handle access
@@ -232,21 +232,21 @@ To create your own library:
 
 ```bash
 # Give this prompt to an AI with the header file:
-"Create Python bindings using ctypes for this C library: [paste cimple_example.h]"
+"Create Python bindings using ctypes for this C library: [paste cimpl_example.h]"
 ```
 
 ### For Node.js Bindings (via AI)
 
 ```bash
 # Give this prompt:
-"Create Node.js N-API bindings for this C library: [paste cimple_example.h]"
+"Create Node.js N-API bindings for this C library: [paste cimpl_example.h]"
 ```
 
 ### For Go Bindings (via AI)
 
 ```bash
 # Give this prompt:
-"Create Go cgo bindings for this C library: [paste cimple_example.h]"
+"Create Go cgo bindings for this C library: [paste cimpl_example.h]"
 ```
 
 The AI will understand the simple C API and generate idiomatic bindings for the target language!

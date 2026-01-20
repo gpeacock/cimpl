@@ -32,6 +32,8 @@ Write your library once in safe Rust, expose it through a clean C API, and let A
 - ✅ AI-friendly C headers (auto-generated via cbindgen)
 - ✅ One codebase → many language bindings
 
+> **Note**: For Node.js and WASM targets, use [`wasm-bindgen`](https://github.com/rustwasm/wasm-bindgen) instead. While Node.js can use cimpl via [Koffi FFI](https://github.com/Koromix/koffi), WASM provides better performance and integration.
+
 ## Quick Example
 
 ```rust
@@ -42,13 +44,9 @@ use uuid::Uuid;
 #[no_mangle]
 pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
 
-// Create error mapper function
-fn map_uuid_error(_e: &uuid::Error) -> (i32, &'static str) {
-    (ERROR_UUID_PARSE_ERROR, "ParseError")
-}
-
-// Register the mapper
-const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = map_uuid_error;
+// Register the error mapper
+const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = 
+    |_e| (ERROR_UUID_PARSE_ERROR, "ParseError");
 
 // Clean, safe FFI function
 #[no_mangle]
@@ -66,6 +64,8 @@ pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
 - Memory is tracked automatically
 - AI can generate bindings for any language
 
+**Want to wrap an existing crate?** See [AI_WORKFLOW.md](./AI_WORKFLOW.md) for step-by-step instructions on using AI to generate FFI wrappers and language bindings.
+
 ## What You Get
 
 ### From Rust to C
@@ -75,10 +75,10 @@ if (uuid == NULL) {
     int code = uuid_error_code();  // 100
     char* msg = uuid_last_error(); // "ParseError: ..."
     printf("Error %d: %s\n", code, msg);
-    cimple_free(msg);
+    uuid_free(msg);
     return -1;
 }
-cimple_free(uuid);
+uuid_free(uuid);
 ```
 
 ### From C to Python (auto-generated!)
@@ -109,7 +109,7 @@ end
 
 ### Pointer Safety
 - **Tracked pointers** with type validation
-- **Universal `cimple_free()`** works on any tracked pointer
+- **Universal `cimpl_free()`** works on any tracked pointer
 - **Double-free protection**
 - **Type mismatch detection**
 
@@ -138,16 +138,30 @@ cimpl = "0.1"
 cbindgen = "0.27"
 ```
 
-See the [examples](./uuid-example/) for complete working code demonstrating:
-- Wrapping external crates (`uuid`)
-- Error handling with error codes
-- C, Python, and Lua bindings
-- Memory management patterns
+### Examples
+
+1. **[example/](./example/)** - **START HERE**: Simple string library showing all core patterns
+   - Purpose-built to demonstrate cimpl features
+   - Clean, documented code
+   - Perfect for learning the basics
+
+2. **[uuid-example/](./uuid-example/)** - **Advanced**: Wrapping external crates with AI
+   - Shows how to wrap the `uuid` crate (external dependency)
+   - Demonstrates AI-assisted binding generation for Python, Lua, C++
+   - See [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md) for the AI workflow
+   - See [EXTERNAL_CRATE_EXAMPLE.md](./uuid-example/EXTERNAL_CRATE_EXAMPLE.md) for technical details
 
 ## Documentation
 
+### Quick Start
+- **[AI_WORKFLOW.md](./AI_WORKFLOW.md)** - **Complete workflow**: How to use AI to wrap any Rust library and generate bindings
+  - Stage 1: Choose or write a Rust library
+  - Stage 2: AI generates C FFI wrapper (using cimpl)
+  - Stage 3: AI generates target language bindings
+  - Includes prompts and examples
+
 ### Core Documentation
-- **[DESIGN_GUIDE.md](./DESIGN_GUIDE.md)** - **START HERE**: Design philosophy, best practices, and lessons learned
+- **[DESIGN_GUIDE.md](./DESIGN_GUIDE.md)** - Design philosophy, best practices, and lessons learned
 - **[LANGUAGE_BINDINGS.md](./LANGUAGE_BINDINGS.md)** - Complete guide for creating bindings in Python, JavaScript, Lua, Ruby, C#, Java, Go, Swift
 
 ### Technical References
@@ -157,15 +171,17 @@ See the [examples](./uuid-example/) for complete working code demonstrating:
 - **[STANDARD_C_CONVENTIONS.md](./STANDARD_C_CONVENTIONS.md)** - Error conventions
 
 ### Examples with Full Bindings
-- **[uuid-example](./uuid-example/)** - Complete UUID library with bindings for C, Python, Lua, and Node.js
-  - Demonstrates wrapping external crates
-  - Full error handling with error codes
-  - Working bindings in 4 languages from one C API
-- **[example](./example/)** - String manipulation demonstrating all cimpl patterns
+- **[example](./example/)** - **START HERE**: String manipulation demonstrating all cimpl patterns
+  - Purpose-built to teach core concepts
+  - Clean, focused code
+- **[uuid-example](./uuid-example/)** - **Advanced**: Wrapping external crates with AI
+  - Shows how to expose existing Rust crates through C
+  - AI-generated bindings for C, Python, Lua, and C++
+  - See [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md)
 
 ## Real-World Use
 
-This is the pattern used in production at Adobe for the [C2PA project](https://github.com/contentauth/c2pa-rs), providing C, Python, and other language bindings from a single Rust codebase.
+A variation of this pattern used in production at Adobe for the [C2PA project](https://github.com/contentauth/c2pa-rs), providing C, Python, and other language bindings from a single Rust codebase.
 
 ## Contributing
 

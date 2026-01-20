@@ -36,7 +36,6 @@ Languages evolve. FFI libraries come and go. Tooling breaks and gets fixed. But 
 │ Stage 3: Target Language (Idiomatic Bindings)               │
 │                                                              │
 │  • Python (ctypes, cffi)                                     │
-│  • Node.js (Koffi, napi-rs, WASM)                          │
 │  • Lua (LuaJIT FFI)                                         │
 │  • Ruby (FFI gem)                                           │
 │  • Go (cgo)                                                 │
@@ -44,6 +43,8 @@ Languages evolve. FFI libraries come and go. Tooling breaks and gets fixed. But 
 │  • Java (JNA, JNI)                                          │
 │  • Swift (C interop)                                        │
 │  • ... any language with FFI support                        │
+│                                                              │
+│  Note: For Node.js/WASM, use wasm-bindgen instead          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -65,12 +66,7 @@ When a language's FFI tooling has issues:
 - ✅ You can switch to alternative FFI libraries
 - ✅ You can wait for the tooling to be fixed
 
-**Real example from this project:**
-- `ffi-napi` (Node.js FFI library) broke with modern Node.js
-- We switched to `koffi` (a maintained alternative)
-- Changed ~10 lines of JavaScript
-- The Rust code and C header: **zero changes**
-- Python, Lua, and C bindings: **completely unaffected**
+**Note on Node.js**: While Node.js *can* use C FFI via libraries like [Koffi](https://github.com/Koromix/koffi), the better approach for Node.js is to use [`wasm-bindgen`](https://github.com/rustwasm/wasm-bindgen) which provides better performance, native async support, and automatic TypeScript definitions.
 
 ### 3. AI-Friendly Code Generation
 

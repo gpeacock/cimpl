@@ -4,15 +4,15 @@
 // or the MIT license (http://opensource.org/licenses/MIT),
 // at your option.
 
-//! # Cimple Example Library
+//! # Cimpl Example Library
 //!
-//! This example demonstrates how to use the cimple utilities to create
+//! This example demonstrates how to use the cimpl utilities to create
 //! safe, ergonomic C FFI bindings. It showcases:
 //!
 //! - Pointer-based API with type validation
 //! - Safe string conversion and memory management
 //! - Error handling with thread-local last error
-//! - Universal `cimple_free()` function for any tracked pointer
+//! - Universal `cimpl_free()` function for any tracked pointer
 //!
 //! ## Building
 //!
@@ -21,9 +21,9 @@
 //! ```
 //!
 //! This will generate:
-//! - `target/release/libcimple_example.a` (static library)
-//! - `target/release/libcimple_example.so/dylib/dll` (dynamic library)
-//! - `include/cimple_example.h` (C header file)
+//! - `target/release/libcimpl_example.a` (static library)
+//! - `target/release/libcimpl_example.so/dylib/dll` (dynamic library)
+//! - `include/cimpl_example.h` (C header file)
 
 use std::os::raw::c_char;
 
@@ -83,14 +83,14 @@ impl MyString {
 /// - Pointer to the new MyString object, or NULL on error
 ///
 /// # Memory Management
-/// The returned pointer must be freed with `cimple_free()` when no longer needed.
+/// The returned pointer must be freed with `cimpl_free()` when no longer needed.
 ///
 /// # Example
 /// ```c
 /// MyString* str = mystring_create("Hello, World!");
 /// if (str != NULL) {
 ///     // Use the string...
-///     cimple_free(str);
+///     cimpl_free(str);
 /// }
 /// ```
 #[no_mangle]
@@ -102,7 +102,7 @@ pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyString {
 /// Frees a MyString object.
 ///
 /// # Deprecated
-/// Use `cimple_free()` instead. This function is kept for API compatibility.
+/// Use `cimpl_free()` instead. This function is kept for API compatibility.
 ///
 /// # Parameters
 /// - `ptr`: Pointer to free (can be NULL)
@@ -112,7 +112,7 @@ pub extern "C" fn mystring_create(initial: *const c_char) -> *mut MyString {
 /// - -1 on error (invalid pointer or already freed)
 #[no_mangle]
 pub extern "C" fn mystring_free(ptr: *mut MyString) -> i32 {
-    cimpl::cimple_free(ptr as *mut std::ffi::c_void)
+    cimpl::cimpl_free(ptr as *mut std::ffi::c_void)
 }
 
 // ============================================================================
@@ -128,7 +128,7 @@ pub extern "C" fn mystring_free(ptr: *mut MyString) -> i32 {
 /// - Pointer to a newly allocated C string containing the value, or NULL on error
 ///
 /// # Memory Management
-/// The returned string must be freed with `cimple_free()`.
+/// The returned string must be freed with `cimpl_free()`.
 #[no_mangle]
 pub extern "C" fn mystring_get_value(ptr: *mut MyString) -> *mut c_char {
     let obj = deref_or_return_null!(ptr, MyString);
@@ -198,7 +198,7 @@ pub extern "C" fn mystring_append(ptr: *mut MyString, suffix: *const c_char) -> 
 /// - Pointer to a newly allocated C string containing the uppercase version, or NULL on error
 ///
 /// # Memory Management
-/// The returned string must be freed with `cimple_free()`.
+/// The returned string must be freed with `cimpl_free()`.
 #[no_mangle]
 pub extern "C" fn mystring_to_uppercase(ptr: *mut MyString) -> *mut c_char {
     let obj = deref_or_return_null!(ptr, MyString);
@@ -212,7 +212,7 @@ pub extern "C" fn mystring_to_uppercase(ptr: *mut MyString) -> *mut c_char {
 /// Frees a string returned by this library.
 ///
 /// # Deprecated
-/// Use `cimple_free()` instead. This function is kept for API compatibility.
+/// Use `cimpl_free()` instead. This function is kept for API compatibility.
 ///
 /// # Parameters
 /// - `str`: String pointer to free (can be NULL)

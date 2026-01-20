@@ -2,11 +2,11 @@
 
 ## Summary
 
-Successfully created a complete working example of using `cimple` to wrap an **external crate** (`uuid`) and expose it through a clean C API.
+Successfully created a complete working example of using `cimpl` to wrap an **external crate** (`uuid`) and expose it through a clean C API.
 
 ## Key Achievement
 
-This demonstrates that `cimple` can wrap **any** Rust library, not just code you write yourself. This opens up the entire Rust ecosystem for C bindings!
+This demonstrates that `cimpl` can wrap **any** Rust library, not just code you write yourself. This opens up the entire Rust ecosystem for C bindings!
 
 ## Approach: Direct External Type Usage
 
@@ -29,7 +29,7 @@ pub extern "C" fn uuid_to_string(uuid: *mut Uuid) -> *mut c_char {
     to_c_string(obj.to_string())
 }
 
-// Clean, simple, and uses all cimple macros!
+// Clean, simple, and uses all cimpl macros!
 ```
 
 **Key insight**: `cbindgen` can't see into external crates, so external types are automatically opaque. Just use them directly!
@@ -44,8 +44,8 @@ pub extern "C" fn uuid_to_string(uuid: *mut Uuid) -> *mut c_char {
 - Comparison
 - Special values (nil, max)
 
-✅ **All cimple features**:
-- Universal `cimple_free()`
+✅ **All cimpl features**:
+- Universal `cimpl_free()`
 - Type validation
 - Error handling with codes
 - Double-free protection
@@ -56,7 +56,7 @@ pub extern "C" fn uuid_to_string(uuid: *mut Uuid) -> *mut c_char {
 ## Test Results
 
 ```
-=== Cimple UUID Library Demo ===
+=== Cimpl UUID Library Demo ===
 
 1. Generating random UUID (v4)...
    Generated: 6c7e52a0-aee8-4fd8-98b0-ab24dfb3906a
@@ -84,7 +84,7 @@ pub extern "C" fn uuid_to_string(uuid: *mut Uuid) -> *mut c_char {
 - `uuid-example/cbindgen.toml` - Header generation config
 - `uuid-example/Makefile` - Build automation
 - `uuid-example/README.md` - Documentation
-- `uuid-example/include/cimple_uuid.h` - Generated C header
+- `uuid-example/include/cimpl_uuid.h` - Generated C header
 
 ## Key Patterns for External Crates
 
@@ -136,8 +136,8 @@ typedef struct Uuid Uuid;  // Automatically opaque!
 ## Lessons Learned
 
 1. **No wrapper needed**: External types are already opaque to `cbindgen`
-2. **Use cimple macros**: `box_tracked!` and `deref_or_return_*` work perfectly
-3. **Type safety**: Full validation through cimple's pointer registry
+2. **Use cimpl macros**: `box_tracked!` and `deref_or_return_*` work perfectly
+3. **Type safety**: Full validation through cimpl's pointer registry
 4. **Performance**: Zero overhead - direct access to Rust types
 5. **Clean code**: 36% fewer lines than the wrapper approach!
 
@@ -154,7 +154,7 @@ This pattern enables wrapping:
 This example proves the concept. In production:
 1. Original crate authors could add a `uuid-ffi` crate
 2. Or create separate wrapper crates (`uuid-c`, `serde-c`, etc.)
-3. Use `cimple` for consistent, safe FFI patterns
+3. Use `cimpl` for consistent, safe FFI patterns
 
 ## Performance Notes
 
@@ -163,9 +163,9 @@ UUID operations are **extremely fast**:
 - Parsing: ~100-200 nanoseconds  
 - String conversion: ~200-300 nanoseconds
 
-The cimple overhead (pointer validation) adds ~20-100ns per call - negligible compared to the operation cost.
+The cimpl overhead (pointer validation) adds ~20-100ns per call - negligible compared to the operation cost.
 
-**Code quality**: The simplified approach uses all cimple macros properly, resulting in:
+**Code quality**: The simplified approach uses all cimpl macros properly, resulting in:
 - **183 lines** of clean, readable code
 - **Full type safety** with pointer validation
 - **Zero manual unsafe blocks** in FFI functions
@@ -173,4 +173,4 @@ The cimple overhead (pointer validation) adds ~20-100ns per call - negligible co
 
 ## Conclusion
 
-**Success!** We can wrap external Rust crates with `cimple` and expose them through clean, safe C APIs. This makes the entire Rust ecosystem available for FFI bindings to any language.
+**Success!** We can wrap external Rust crates with `cimpl` and expose them through clean, safe C APIs. This makes the entire Rust ecosystem available for FFI bindings to any language.

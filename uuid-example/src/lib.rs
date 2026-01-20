@@ -4,7 +4,7 @@
 //! for the Rust `uuid` crate (an external dependency). It showcases:
 //!
 //! - Wrapping external crate types (no opaque wrapper needed!)
-//! - Universal `cimple_free()` for all allocations
+//! - Universal `cimpl_free()` for all allocations
 //! - Multiple constructors and methods
 //! - Error handling with error codes
 //! - Clean macro usage throughout
@@ -169,7 +169,7 @@ pub extern "C" fn uuid_equals(a: *mut Uuid, b: *mut Uuid) -> bool {
 /// Frees a UUID object.
 /// Frees any pointer allocated by this library.
 ///
-/// This is a convenience wrapper around `cimpl::cimple_free()` that provides
+/// This is a convenience wrapper around `cimpl::cimpl_free()` that provides
 /// a library-specific API. It can free:
 /// - Uuid objects (returned by uuid_new_*, uuid_parse, etc.)
 /// - Strings (returned by uuid_to_string, uuid_last_error, etc.)
@@ -179,7 +179,7 @@ pub extern "C" fn uuid_equals(a: *mut Uuid, b: *mut Uuid) -> bool {
 /// The pointer must have been allocated by this library, or be NULL.
 #[no_mangle]
 pub extern "C" fn uuid_free(ptr: *mut std::ffi::c_void) -> i32 {
-    cimpl::cimple_free(ptr)
+    cimpl::cimpl_free(ptr)
 }
 
 // ============================================================================

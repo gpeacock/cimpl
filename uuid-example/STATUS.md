@@ -100,8 +100,8 @@ The new structure enables a clear testing strategy:
 ## Migration Impact
 
 **Minimal** - The key C API and build process remain unchanged:
-- `include/cimple_uuid.h` unchanged
-- `target/release/libcimple_uuid.*` unchanged
+- `include/cimpl_uuid.h` unchanged
+- `target/release/libcimpl_uuid.*` unchanged
 - `cargo build --release` unchanged
 - `make run-c` still works
 

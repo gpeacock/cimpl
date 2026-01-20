@@ -1,4 +1,4 @@
-# Makefile for building and testing the cimple example
+# Makefile for building and testing the cimpl example
 
 .PHONY: all build test clean run-c example help
 
@@ -17,9 +17,9 @@ endif
 
 LIB_DIR = target/release
 INCLUDE_DIR = include
-STATIC_LIB = $(LIB_DIR)/libcimple_example.a
-DYNAMIC_LIB = $(LIB_DIR)/libcimple_example.$(LIB_EXT)
-HEADER = $(INCLUDE_DIR)/cimple_example.h
+STATIC_LIB = $(LIB_DIR)/libcimpl_example.a
+DYNAMIC_LIB = $(LIB_DIR)/libcimpl_example.$(LIB_EXT)
+HEADER = $(INCLUDE_DIR)/cimpl_example.h
 
 # Default target
 all: build
@@ -45,7 +45,7 @@ example-dynamic: build
 	gcc example.c -o example \
 		-I$(INCLUDE_DIR) \
 		-L$(LIB_DIR) \
-		-lcimple_example \
+		-lcimpl_example \
 		-Wall -Wextra
 
 # Build C example using static library
@@ -81,7 +81,7 @@ clean:
 
 # Show help
 help:
-	@echo "Cimple Example - Makefile targets:"
+	@echo "Cimpl Example - Makefile targets:"
 	@echo ""
 	@echo "  make build           - Build the Rust library (static + dynamic + header)"
 	@echo "  make test            - Run Rust tests"

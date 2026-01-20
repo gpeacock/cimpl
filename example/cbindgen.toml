@@ -137,7 +137,7 @@ header = """
  */
 """
 
-# Add cimple_free declaration manually since it's from the parent crate
+# Add cimpl_free declaration manually since it's from the parent crate
 after_includes = """
 /**
  * @brief Universal free function for any pointer allocated by this library
@@ -161,11 +161,11 @@ after_includes = """
  * MyString* str = mystring_create("hello");
  * char* value = mystring_get_value(str);
  * 
- * cimple_free(value);  // Free the string
- * cimple_free(str);    // Free the MyString
+ * cimpl_free(value);  // Free the string
+ * cimpl_free(str);    // Free the MyString
  * @endcode
  */
-int32_t cimple_free(void *ptr);
+int32_t cimpl_free(void *ptr);
 """
 
 [export]

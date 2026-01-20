@@ -1,7 +1,7 @@
 """
-Python bindings for the cimple-uuid library
+Python bindings for the cimpl-uuid library
 
-Auto-generated from cimple_uuid.h
+Auto-generated from cimpl_uuid.h
 """
 
 import ctypes
@@ -11,7 +11,7 @@ import os
 
 
 # Load the library
-_lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../target/release/libcimple_uuid.dylib"))
+_lib_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../target/release/libcimpl_uuid.dylib"))
 _lib = ctypes.CDLL(_lib_path)
 
 # Opaque Uuid type

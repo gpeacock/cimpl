@@ -1,15 +1,15 @@
 #!/bin/bash
-# Quick demonstration script for the cimple example
+# Quick demonstration script for the cimpl example
 
 set -e
 
 echo "=========================================="
-echo "  Cimple Example - Quick Demo"
+echo "  Cimpl Example - Quick Demo"
 echo "=========================================="
 echo ""
 
 # Check if we're in the example directory
-if [ ! -f "Cargo.toml" ] || ! grep -q "cimple-example" Cargo.toml 2>/dev/null; then
+if [ ! -f "Cargo.toml" ] || ! grep -q "cimpl-example" Cargo.toml 2>/dev/null; then
     echo "Error: Please run this script from the example/ directory"
     exit 1
 fi
@@ -26,14 +26,14 @@ echo "Step 2: Examining generated files..."
 echo ""
 echo "  📦 Static library:  $(ls -lh target/release/*.a | awk '{print $9, "(" $5 ")"}')"
 echo "  📦 Dynamic library: $(ls -lh target/release/*.dylib target/release/*.so 2>/dev/null | awk '{print $9, "(" $5 ")"}' || echo 'N/A')"
-echo "  📄 C header:        include/cimple_example.h"
+echo "  📄 C header:        include/cimpl_example.h"
 echo ""
 
 echo "Step 3: Showing part of the generated C header..."
 echo ""
 echo "  ─────────────────────────────────────────"
-head -30 include/cimple_example.h
-echo "  ... (see full file at include/cimple_example.h)"
+head -30 include/cimpl_example.h
+echo "  ... (see full file at include/cimpl_example.h)"
 echo "  ─────────────────────────────────────────"
 echo ""
 
@@ -61,11 +61,11 @@ echo ""
 echo "Next steps:"
 echo "  • Read README.md for full documentation"
 echo "  • Read QUICKSTART.md for quick start guide"
-echo "  • Try: cat include/cimple_example.h"
+echo "  • Try: cat include/cimpl_example.h"
 echo "  • Try: make help"
 echo ""
 echo "To generate Python/Node.js/Go bindings:"
-echo "  1. Copy include/cimple_example.h"
+echo "  1. Copy include/cimpl_example.h"
 echo "  2. Give it to an AI with this prompt:"
 echo "     'Create [language] bindings for this C library: [paste header]'"
 echo ""

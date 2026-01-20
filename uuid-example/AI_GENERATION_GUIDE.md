@@ -4,7 +4,7 @@ This document explains how to test `cimpl`'s AI-friendliness by generating langu
 
 ## The Goal
 
-`cimpl` aims to make the C header file (`include/cimple_uuid.h`) so clear and well-documented that AI models can generate high-quality language bindings with minimal prompting.
+`cimpl` aims to make the C header file (`include/cimpl_uuid.h`) so clear and well-documented that AI models can generate high-quality language bindings with minimal prompting.
 
 ## Testing Approach
 
@@ -22,7 +22,7 @@ The `.ai-generated/` directory is gitignored for experimentation.
 Give the AI model **only** the C header file:
 
 ```bash
-cat include/cimple_uuid.h
+cat include/cimpl_uuid.h
 ```
 
 ### 3. Prompt Examples
@@ -38,7 +38,7 @@ Requirements:
 - Type hints
 
 Header file:
-[paste cimple_uuid.h]
+[paste cimpl_uuid.h]
 ```
 
 #### Node.js (Koffi)
@@ -52,7 +52,7 @@ Requirements:
 - Modern ES6+ syntax
 
 Header file:
-[paste cimple_uuid.h]
+[paste cimpl_uuid.h]
 ```
 
 #### Lua (LuaJIT FFI)
@@ -66,7 +66,7 @@ Requirements:
 - Error handling with pcall
 
 Header file:
-[paste cimple_uuid.h]
+[paste cimpl_uuid.h]
 ```
 
 ### 4. Compare with Reference Implementations

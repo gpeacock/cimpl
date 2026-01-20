@@ -34,7 +34,7 @@ cargo build --release
 # Compile the example
 gcc example.c -o example \
     -Iinclude \
-    target/release/libcimple_uuid.a \
+    target/release/libcimpl_uuid.a \
     -lpthread -framework Security \
     -Wall -Wextra
 

@@ -35,7 +35,7 @@ type CleanupFn = Box<dyn FnMut() + Send>;
 
 /// Registry that tracks pointers allocated from Rust and passed to C.
 /// Each pointer is associated with its type and a cleanup function,
-/// enabling type validation and universal freeing via `cimple_free()`.
+/// enabling type validation and universal freeing via `cimpl_free()`.
 pub struct PointerRegistry {
     tracked: Mutex<HashMap<usize, (TypeId, CleanupFn)>>,
 }
@@ -96,7 +96,7 @@ impl Drop for PointerRegistry {
                 tracked.len()
             );
             eprintln!("This indicates C code did not properly free all allocated pointers.");
-            eprintln!("Each pointer should be freed exactly once with cimple_free().\n");
+            eprintln!("Each pointer should be freed exactly once with cimpl_free().\n");
         }
     }
 }
@@ -115,7 +115,7 @@ pub fn get_registry() -> &'static PointerRegistry {
 /// Track a Box-wrapped pointer
 ///
 /// Use this when you allocate with `Box::into_raw()`.
-/// The pointer will be freed with `Box::from_raw()` when `cimple_free()` is called.
+/// The pointer will be freed with `Box::from_raw()` when `cimpl_free()` is called.
 pub fn track_box<T: 'static>(ptr: *mut T) {
     let ptr_val = ptr as usize; // Store as usize to make it Send
     let cleanup = move || unsafe {
@@ -127,7 +127,7 @@ pub fn track_box<T: 'static>(ptr: *mut T) {
 /// Track an Arc-wrapped pointer
 ///
 /// Use this when you allocate with `Arc::into_raw()`.
-/// The pointer will be freed with `Arc::from_raw()` when `cimple_free()` is called.
+/// The pointer will be freed with `Arc::from_raw()` when `cimpl_free()` is called.
 pub fn track_arc<T: 'static>(ptr: *mut T) {
     let ptr_val = ptr as usize; // Store as usize to make it Send
     let cleanup = move || unsafe {
@@ -139,7 +139,7 @@ pub fn track_arc<T: 'static>(ptr: *mut T) {
 /// Track an Arc<Mutex<T>>-wrapped pointer
 ///
 /// Use this when you allocate with `Arc::into_raw(Arc::new(Mutex::new(value)))`.
-/// The pointer will be freed with `Arc::from_raw()` when `cimple_free()` is called.
+/// The pointer will be freed with `Arc::from_raw()` when `cimpl_free()` is called.
 pub fn track_arc_mutex<T: 'static>(ptr: *mut Mutex<T>) {
     let ptr_val = ptr as usize; // Store as usize to make it Send
     let cleanup = move || unsafe {
@@ -155,7 +155,7 @@ pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
 
 /// Universal free function for any tracked pointer
 ///
-/// Frees any pointer that was allocated and tracked through cimple
+/// Frees any pointer that was allocated and tracked through cimpl
 /// (Box, Arc, Arc<Mutex>, etc.). The correct destructor is automatically called
 /// based on how the pointer was tracked.
 ///
@@ -184,7 +184,7 @@ pub fn free_tracked_pointer(ptr: *mut u8) -> Result<(), Error> {
 /// C-compatible wrapper for `free_tracked_pointer`
 ///
 /// This is the universal free function exposed to C. It works for ANY pointer
-/// that was allocated and tracked through cimple, regardless of the wrapper type
+/// that was allocated and tracked through cimpl, regardless of the wrapper type
 /// (Box, Arc, etc.) or the underlying Rust type.
 ///
 /// # Returns
@@ -201,11 +201,11 @@ pub fn free_tracked_pointer(ptr: *mut u8) -> Result<(), Error> {
 /// MyString* str = mystring_create("hello");
 /// char* value = mystring_get_value(str);
 ///
-/// cimple_free(value);  // Free the returned string
-/// cimple_free(str);    // Free the MyString - same function!
+/// cimpl_free(value);  // Free the returned string
+/// cimpl_free(str);    // Free the MyString - same function!
 /// ```
 #[no_mangle]
-pub extern "C" fn cimple_free(ptr: *mut std::ffi::c_void) -> i32 {
+pub extern "C" fn cimpl_free(ptr: *mut std::ffi::c_void) -> i32 {
     match free_tracked_pointer(ptr as *mut u8) {
         Ok(()) => 0,
         Err(e) => {

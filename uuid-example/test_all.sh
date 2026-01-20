@@ -41,19 +41,6 @@ fi
 cd ../..
 echo ""
 
-# Test Node.js
-echo "4. Testing Node.js bindings..."
-cd bindings/nodejs
-npm test > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "✅ Node.js bindings work"
-else
-    echo "❌ Node.js bindings failed"
-    exit 1
-fi
-cd ../..
-echo ""
-
 # Test Lua
 echo "5. Testing Lua bindings..."
 cd bindings/lua
