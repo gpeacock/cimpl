@@ -42,20 +42,19 @@ use uuid::Uuid;
 #[no_mangle]
 pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
 
-// Create error mapping table
-define_error_codes! {
-    error_type: uuid::Error,
-    table_name: UUID_ERROR_TABLE,
-    codes: {
-        _ => ("ParseError", ERROR_UUID_PARSE_ERROR),
-    }
+// Create error mapper function
+fn map_uuid_error(_e: &uuid::Error) -> (i32, &'static str) {
+    (ERROR_UUID_PARSE_ERROR, "ParseError")
 }
+
+// Register the mapper
+const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = map_uuid_error;
 
 // Clean, safe FFI function
 #[no_mangle]
 pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
     let s_str = cstr_or_return_null!(s);
-    let uuid = ok_or_return_null_with_table!(Uuid::from_str(&s_str), UUID_ERROR_TABLE);
+    let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
     box_tracked!(uuid)
 }
 ```
@@ -124,8 +123,8 @@ end
 - `box_tracked!()` - Allocate and track Box
 - `cstr_or_return_*!()` - C string conversion with null checks
 - `deref_or_return_*!()` - Pointer validation and dereferencing
-- `ok_or_return_*_with_table!()` - Result unwrapping with error mapping
-- `define_error_codes!()` - Error mapping table generation
+- `ok_or_return_*!()` - Result unwrapping with error mapper
+- Error mapper pattern for clean, flexible error handling
 
 ## Getting Started
 
@@ -145,17 +144,24 @@ See the [examples](./uuid-example/) for complete working code demonstrating:
 - C, Python, and Lua bindings
 - Memory management patterns
 
-## Examples
-
-- **[uuid-example](./uuid-example/)** - Complete UUID library with bindings for C, Python, and Lua
-- **[example](./example/)** - String manipulation demonstrating all cimpl patterns
-
 ## Documentation
 
+### Core Documentation
+- **[DESIGN_GUIDE.md](./DESIGN_GUIDE.md)** - **START HERE**: Design philosophy, best practices, and lessons learned
+- **[LANGUAGE_BINDINGS.md](./LANGUAGE_BINDINGS.md)** - Complete guide for creating bindings in Python, JavaScript, Lua, Ruby, C#, Java, Go, Swift
+
+### Technical References
 - **[POINTER_REDESIGN.md](./POINTER_REDESIGN.md)** - Pointer registry architecture
 - **[TABLE_BASED_ERROR_MAPPING.md](./TABLE_BASED_ERROR_MAPPING.md)** - Error handling system
 - **[MACRO_PATTERNS.md](./MACRO_PATTERNS.md)** - Complete macro reference
 - **[STANDARD_C_CONVENTIONS.md](./STANDARD_C_CONVENTIONS.md)** - Error conventions
+
+### Examples with Full Bindings
+- **[uuid-example](./uuid-example/)** - Complete UUID library with bindings for C, Python, Lua, and Node.js
+  - Demonstrates wrapping external crates
+  - Full error handling with error codes
+  - Working bindings in 4 languages from one C API
+- **[example](./example/)** - String manipulation demonstrating all cimpl patterns
 
 ## Real-World Use
 

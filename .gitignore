@@ -23,6 +23,20 @@ example/example
 *.dll
 *.lib
 
+node_modules/
+
 # Backup files
 *.bak
 *.tmp
+
+# AI-generated bindings (for experimentation)
+.ai-generated/
+**/.ai-generated/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/

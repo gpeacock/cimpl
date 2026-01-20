@@ -207,6 +207,45 @@ impl Error {
         Error::Other(format!("Other: {}", e))
     }
 
+    /// Converts a library error using a mapping function
+    ///
+    /// This method provides a simpler alternative to `from_table` by using a function
+    /// that directly maps errors to (code, name) pairs. This is more flexible and
+    /// easier to customize than table-based approaches.
+    ///
+    /// # Arguments
+    ///
+    /// * `e` - The external error to convert
+    /// * `mapper` - A function that takes a reference to the error and returns `(code, name)`
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Define error codes
+    /// #[no_mangle]
+    /// pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
+    ///
+    /// // Define mapper function
+    /// fn map_uuid_error(e: &uuid::Error) -> (i32, &'static str) {
+    ///     match e {
+    ///         uuid::Error::InvalidLength(_) => (ERROR_UUID_INVALID_LENGTH, "InvalidLength"),
+    ///         _ => (ERROR_UUID_PARSE_ERROR, "ParseError"),
+    ///     }
+    /// }
+    ///
+    /// // Use in FFI function
+    /// match Uuid::from_str(s) {
+    ///     Err(e) => {
+    ///         Error::from_mapper(e, map_uuid_error).set_last();
+    ///         std::ptr::null_mut()
+    ///     }
+    /// }
+    /// ```
+    pub fn from_mapper<E: std::fmt::Display>(e: E, mapper: fn(&E) -> (i32, &'static str)) -> Self {
+        let (code, name) = mapper(&e);
+        Error::LibraryError(code, format!("{}: {}", name, e))
+    }
+
     /// Sets the last error
     pub fn set_last(self) {
         LAST_ERROR.with(|prev| *prev.borrow_mut() = Some(self));

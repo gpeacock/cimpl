@@ -13,9 +13,8 @@ use std::os::raw::c_char;
 use std::str::FromStr;
 
 use cimpl::{
-    box_tracked, cstr_or_return_null, define_error_codes, deref_or_return_false,
-    deref_or_return_null, deref_or_return_zero, ok_or_return_null_with_table, to_c_bytes,
-    to_c_string, Error,
+    box_tracked, cstr_or_return_null, deref_or_return_false, deref_or_return_null,
+    deref_or_return_zero, ok_or_return_null, to_c_bytes, to_c_string, Error,
 };
 
 // Use uuid::Uuid directly - it's already opaque to C!
@@ -43,14 +42,22 @@ pub static ERROR_OTHER: i32 = 5;
 #[no_mangle]
 pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
 
-// Define the error mapping table
-define_error_codes! {
-    error_type: uuid::Error,
-    table_name: UUID_ERROR_TABLE,
-    codes: {
-        _ => ("ParseError", ERROR_UUID_PARSE_ERROR),
-    }
+// ============================================================================
+// Error Mapper
+// ============================================================================
+
+/// Maps uuid::Error to cimpl error codes
+///
+/// This function translates uuid crate errors into our C API error codes.
+/// It's called automatically by the ok_or_return_* macros.
+fn map_uuid_error(_e: &uuid::Error) -> (i32, &'static str) {
+    // For uuid crate, all errors are parse errors
+    // Could be extended to match on specific error types if needed
+    (ERROR_UUID_PARSE_ERROR, "ParseError")
 }
+
+// Register the error mapper - ok_or_return_* macros will use this
+const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = map_uuid_error;
 
 // ============================================================================
 // Constructors
@@ -72,7 +79,7 @@ pub extern "C" fn uuid_new_v7() -> *mut Uuid {
 #[no_mangle]
 pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
     let s_str = cstr_or_return_null!(s);
-    let uuid = ok_or_return_null_with_table!(Uuid::from_str(&s_str), UUID_ERROR_TABLE);
+    let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
     box_tracked!(uuid)
 }
 
@@ -138,7 +145,7 @@ pub extern "C" fn uuid_is_max(uuid: *mut Uuid) -> bool {
 pub extern "C" fn uuid_compare(a: *mut Uuid, b: *mut Uuid) -> i32 {
     let uuid_a = deref_or_return_zero!(a, Uuid);
     let uuid_b = deref_or_return_zero!(b, Uuid);
-    
+
     match uuid_a.cmp(uuid_b) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
@@ -174,7 +181,7 @@ pub extern "C" fn uuid_free(uuid: *mut Uuid) -> i32 {
 /// Gets the error code for the last error.
 #[no_mangle]
 pub extern "C" fn uuid_error_code() -> i32 {
-    Error::last_code() as i32
+    Error::last_code()
 }
 
 /// Gets the error message for the last error.

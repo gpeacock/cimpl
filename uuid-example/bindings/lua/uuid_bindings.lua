@@ -53,7 +53,7 @@ local lib_path = debug.getinfo(1).source:match("@?(.*/)")
 if lib_path == nil then
     lib_path = "./"
 end
-local lib = ffi.load(lib_path .. "target/release/libcimple_uuid.dylib")
+local lib = ffi.load(lib_path .. "../../target/release/libcimple_uuid.dylib")
 
 -- Error handling
 local ERROR_NAMES = {

@@ -193,33 +193,42 @@ Typical performance:
 
 ## Language Bindings
 
-This C API can be used to create bindings for any language:
+This C API can be used to create bindings for any language. The `bindings/` directory contains reference implementations for:
 
-### Python (via ctypes)
-```python
-from ctypes import *
+- **C** - Native usage example
+- **Python** - via ctypes
+- **Node.js** - via Koffi FFI
+- **Lua** - via LuaJIT FFI
 
-lib = CDLL("./target/release/libcimple_uuid.dylib")
-uuid = lib.uuid_new_v4()
-str_ptr = lib.uuid_to_string(uuid)
-print(string_at(str_ptr).decode())
-lib.cimple_free(str_ptr)
-lib.cimple_free(uuid)
+See [`bindings/README.md`](bindings/README.md) for details on each binding's purpose, usage, and testing.
+
+### Quick Test
+
+```bash
+# C
+make run-c
+
+# Python
+cd bindings/python && python3 test.py
+
+# Node.js
+cd bindings/nodejs && npm test
+
+# Lua
+cd bindings/lua && luajit test.lua
 ```
 
-### JavaScript (via FFI)
-```javascript
-const ffi = require('ffi-napi');
-const lib = ffi.Library('libcimple_uuid', {
-  'uuid_new_v4': ['pointer', []],
-  'uuid_to_string': ['string', ['pointer']],
-  'cimple_free': ['int32', ['pointer']]
-});
+### Philosophy: Reference Implementations
 
-const uuid = lib.uuid_new_v4();
-console.log(lib.uuid_to_string(uuid));
-lib.cimple_free(uuid);
-```
+The bindings in this repository are **reference implementations** showing what should be generated from the C header. They are maintained as part of the test suite.
+
+For true AI generation testing:
+1. Create an `.ai-generated/` directory (gitignored)
+2. Provide an AI with just `include/cimple_uuid.h`
+3. Compare output with the reference implementations
+4. Iterate on header documentation to improve AI output quality
+
+See [`bindings/README.md`](bindings/README.md) for more details.
 
 ## Files Generated
 

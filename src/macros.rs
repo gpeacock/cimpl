@@ -266,17 +266,16 @@ macro_rules! cstr_or_return_with_limit {
 }
 
 /// Handle Result or early-return with error value
-/// This is a generic macro that can be customized by the user
-/// to handle their own error types. The transform function
-/// is applied to the Ok value before returning it.
+/// If the result is Ok, the transform function is applied to the value before returning it.
+/// If the result is Err, the error is converted using the supplied error mapper function.
 #[macro_export]
 macro_rules! ok_or_return {
-    // For generic results with custom error handling
-    ($result:expr, $error_handler:expr, $transform:expr, $err_val:expr) => {
+    // For results using ERROR_MAPPER (new pattern)
+    ($result:expr, $transform:expr, $err_val:expr) => {
         match $result {
             Ok(value) => $transform(value),
-            Err(err) => {
-                $error_handler(err);
+            Err(e) => {
+                $crate::Error::from_mapper(e, ERROR_MAPPER).set_last();
                 return $err_val;
             }
         }
@@ -285,6 +284,7 @@ macro_rules! ok_or_return {
     (@local $result:expr, $transform:expr, $err_val:expr) => {
         match $result {
             Ok(value) => $transform(value),
+
             Err(err) => {
                 err.set_last();
                 return $err_val;
@@ -497,5 +497,51 @@ macro_rules! ok_or_return_zero_with_table {
 macro_rules! ok_or_return_false_with_table {
     ($result:expr, $table:expr) => {
         $crate::ok_or_return_with_table!($result, $table, false)
+    };
+}
+
+// ============================================================================
+// Error Mapper Registration
+// ============================================================================
+
+/// Registers an error mapper function for use with simplified `ok_or_return_*` macros
+///
+/// This macro creates a constant `ERROR_MAPPER` that the simplified `ok_or_return_*` macros
+/// will use to convert library errors to cimpl errors. This provides a cleaner API than
+/// passing the error table to every macro call.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // 1. Declare error codes (for cbindgen)
+/// #[no_mangle]
+/// pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
+///
+/// // 2. Define mapper function
+/// fn map_uuid_error(e: &uuid::Error) -> (i32, &'static str) {
+///     match e {
+///         uuid::Error::InvalidLength(_) => (ERROR_UUID_INVALID_LENGTH, "InvalidLength"),
+///         _ => (ERROR_UUID_PARSE_ERROR, "ParseError"),
+///     }
+/// }
+///
+/// // 3. Register the mapper
+/// register_error_mapper!(map_uuid_error);
+///
+/// // 4. Use simplified macros (no mapper/table argument needed!)
+/// #[no_mangle]
+/// pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
+///     let s_str = cstr_or_return_null!(s);
+///     let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
+///     box_tracked!(uuid)
+/// }
+/// ```
+#[macro_export]
+macro_rules! register_error_mapper {
+    ($mapper_fn:ident) => {
+        const ERROR_MAPPER: fn(&_) -> (i32, &'static str) = $mapper_fn;
+    };
+    ($mapper_fn:path) => {
+        const ERROR_MAPPER: fn(&_) -> (i32, &'static str) = $mapper_fn;
     };
 }
