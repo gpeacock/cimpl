@@ -151,11 +151,17 @@ cbindgen = "0.27"
    - Real-world pattern used in libraries like C2PA
    - Demonstrates bidirectional function pointer usage
 
-3. **[uuid-example/](./uuid-example/)** - **Advanced**: Wrapping external crates with AI
+3. **[uuid-example/](./uuid-example/)** - **Wrapping External Crates**: UUID generation
    - Shows how to wrap the `uuid` crate (external dependency)
    - Demonstrates AI-assisted binding generation for Python, Lua, C++
    - See [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md) for the AI workflow
    - See [EXTERNAL_CRATE_EXAMPLE.md](./uuid-example/EXTERNAL_CRATE_EXAMPLE.md) for technical details
+
+4. **[chrono-example/](./chrono-example/)** - **Popular Crate**: Date/Time library
+   - Wraps the popular `chrono` crate (100M+ downloads)
+   - Comprehensive API: DateTime, Duration, parsing, formatting
+   - C, Python, and C++ bindings all working
+   - Shows how to handle complex types and error mapping
 
 ## Documentation
 
@@ -182,10 +188,16 @@ cbindgen = "0.27"
 - **[example](./example/)** - **START HERE**: String manipulation demonstrating all cimpl patterns
   - Purpose-built to teach core concepts
   - Clean, focused code
-- **[uuid-example](./uuid-example/)** - **Advanced**: Wrapping external crates with AI
+- **[stream-example](./stream-example/)** - **Callbacks**: Stream I/O demonstrating C callback patterns
+  - Real-world usage pattern from C2PA library
+- **[uuid-example](./uuid-example/)** - **External Crates**: Wrapping the uuid crate
   - Shows how to expose existing Rust crates through C
   - AI-generated bindings for C, Python, Lua, and C++
   - See [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md)
+- **[chrono-example](./chrono-example/)** - **Popular Crate**: Date/time with chrono
+  - Wraps one of Rust's most popular crates (100M+ downloads)
+  - Comprehensive date/time API with full bindings for C, Python, and C++
+  - Shows error mapping and complex type handling
 
 ## Real-World Use
 

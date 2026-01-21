@@ -50,15 +50,14 @@ pub static UUID_ERROR_PARSE_ERROR: i32 = 100;
 /// Maps uuid::Error to cimpl error codes
 ///
 /// This function translates uuid crate errors into our C API error codes.
-/// It's called automatically by the ok_or_return_* macros.
+/// It's passed explicitly to the ok_or_return_* macros when parsing UUIDs.
 fn map_uuid_error(_e: &uuid::Error) -> (i32, &'static str) {
     // For uuid crate, all errors are parse errors
     // Could be extended to match on specific error types if needed
     (UUID_ERROR_PARSE_ERROR, "ParseError")
 }
 
-// Register the error mapper - ok_or_return_* macros will use this
-const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = map_uuid_error;
+const UUID_ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = map_uuid_error;
 
 // ============================================================================
 // Constructors
@@ -80,7 +79,7 @@ pub extern "C" fn uuid_new_v7() -> *mut Uuid {
 #[no_mangle]
 pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
     let s_str = cstr_or_return_null!(s);
-    let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
+    let uuid = ok_or_return_null!(Uuid::from_str(&s_str), UUID_ERROR_MAPPER);
     box_tracked!(uuid)
 }
 
