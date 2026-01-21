@@ -37,8 +37,8 @@
 //! - **Optional string**: `option_to_c_string!(opt)` → `None` becomes `NULL`
 //!
 //! ## Error Handling
-//! - **External crate Result**: `ok_or_return_null!(result, MY_MAPPER)` → needs mapper for error conversion
-//! - **cimpl::Error Result**: `ok_or_return_null!(result)` → no mapper needed
+//! - **External crate Result**: `ok_or_return_null!(result, MyErrorEnum)` → centralized mapping via trait
+//! - **cimpl::Error Result**: `ok_or_return_null!(result)` → used directly
 //! - **Option<T> (validation)**: `some_or_return_other_null!(option, "message")` → most common case
 //! - **Option<T> (custom error)**: `some_or_return_null!(option, Error::InvalidHandle(id))` → specific error type
 //!
@@ -55,8 +55,8 @@
 //! |------------------------|-----------------|-----------------------------------|---------|
 //! | `*mut T` (from C)      | -               | `deref_or_return_null!(ptr, T)`   | Getting object from C |
 //! | `*const c_char` (from C)| -              | `cstr_or_return_null!(s)`         | Getting string from C |
-//! | `Result<T, ExtErr>`    | pointer/int     | `ok_or_return_null!(r, MAPPER)`   | External crate errors |
-//! | `Result<T, cimpl::Err>`| pointer/int     | `ok_or_return_null!(r)`           | Internal validation |
+//! | `Result<T, ExtErr>`    | pointer/int     | `ok_or_return_null!(r, MyEnum)`   | External crate errors (trait) |
+//! | `Result<T, cimpl::Err>`| pointer/int     | `f!(r)`           | Internal validation |
 //! | `Option<T>` validate   | pointer/int     | `some_or_return_other_null!(o, msg)` | Validation failures |
 //! | `Option<T>` custom     | pointer/int     | `some_or_return_null!(o, err)`    | Specific error needed |
 //! | `T` (owned)            | `*mut T`        | `box_tracked!(value)`             | Returning new object |
@@ -77,12 +77,33 @@
 //! }
 //! ```
 //!
-//! ## Pattern 2: Parser (external crate Result)
+//! ## Pattern 2: Parser (external crate Result with centralized mapping)
 //! ```rust,ignore
+//! // 1. Define error enum and implement trait (centralized!)
+//! #[repr(C)]
+//! pub enum UuidError {
+//!     ParseError = 100,
+//! }
+//!
+//! impl CimplError for UuidError {
+//!     fn error_code(&self) -> i32 { *self as i32 }
+//!     fn error_name(&self) -> &'static str {
+//!         match self {
+//!             UuidError::ParseError => "ParseError",
+//!         }
+//!     }
+//! }
+//!
+//! // 2. Map external error to your enum (centralized!)
+//! impl From<uuid::Error> for UuidError {
+//!     fn from(_: uuid::Error) -> Self { UuidError::ParseError }
+//! }
+//!
+//! // 3. Use in FFI (clean!)
 //! #[no_mangle]
 //! pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
 //!     let s_str = cstr_or_return_null!(s);
-//!     let uuid = ok_or_return_null!(Uuid::from_str(&s_str), UUID_MAPPER);
+//!     let uuid = ok_or_return_null!(Uuid::from_str(&s_str), UuidError);
 //!     box_tracked!(uuid)
 //! }
 //! ```
@@ -318,32 +339,37 @@ macro_rules! cstr_or_return_with_limit {
 
 /// Handle Result or early-return with error value
 ///
-/// This macro handles Result types with smart error conversion:
-/// - If a mapper is provided, uses it to convert external errors to cimpl::Error
-/// - If no mapper is provided, assumes the error is already cimpl::Error
+/// This macro handles Result types with centralized error conversion:
+/// - With enum type: Converts external errors using From trait and CimplError trait
+/// - Without enum: Uses error directly (must be cimpl::Error)
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // With external error type (needs mapper)
-/// let uuid = ok_or_return!(Uuid::from_str(&s), |v| v, std::ptr::null_mut(), UUID_MAPPER);
+/// // External error with error enum (centralized mapping!)
+/// let uuid = ok_or_return!(
+///     Uuid::from_str(&s), 
+///     |v| v, 
+///     std::ptr::null_mut(),
+///     UuidError
+/// );
 ///
-/// // With cimpl::Error (no mapper needed)
+/// // With cimpl::Error (no enum needed)
 /// let data = ok_or_return!(some_operation(), |v| v, std::ptr::null_mut());
 /// ```
 #[macro_export]
 macro_rules! ok_or_return {
-    // With explicit mapper for external error types
-    ($result:expr, $transform:expr, $err_val:expr, $mapper:expr) => {
+    // With error enum type for external error types
+    ($result:expr, $transform:expr, $err_val:expr, $error_enum:ty) => {
         match $result {
             Ok(value) => $transform(value),
             Err(e) => {
-                $crate::Error::from_mapper(e, $mapper).set_last();
+                $crate::Error::from_error_enum::<$error_enum, _>(e).set_last();
                 return $err_val;
             }
         }
     };
-    // Without mapper - assumes Result<T, cimpl::Error>
+    // Without enum - assumes Result<T, cimpl::Error>
     ($result:expr, $transform:expr, $err_val:expr) => {
         match $result {
             Ok(value) => $transform(value),
@@ -361,11 +387,11 @@ macro_rules! ok_or_return {
 
 /// Handle Result, early-return with -1 (negative) on error
 ///
-/// Supports both external errors (with mapper) and cimpl::Error (without mapper).
+/// Optionally accepts an error enum type for centralized external error conversion.
 #[macro_export]
 macro_rules! ok_or_return_int {
-    ($result:expr, $mapper:expr) => {
-        $crate::ok_or_return!($result, |v| v, -1, $mapper)
+    ($result:expr, $error_enum:ty) => {
+        $crate::ok_or_return!($result, |v| v, -1, $error_enum)
     };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, -1)
@@ -374,21 +400,21 @@ macro_rules! ok_or_return_int {
 
 /// Handle Result, early-return with null on error
 ///
-/// Supports both external errors (with mapper) and cimpl::Error (without mapper).
+/// Optionally accepts an error enum type for centralized external error conversion.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // With external error (e.g., uuid::Error)
-/// let uuid = ok_or_return_null!(Uuid::from_str(&s), PARSE_ERROR_MAPPER);
+/// // With error enum for external error (centralized mapping!)
+/// let uuid = ok_or_return_null!(Uuid::from_str(&s), UuidError);
 ///
-/// // With cimpl::Error
+/// // Without enum for cimpl::Error
 /// let data = ok_or_return_null!(validate_something());
 /// ```
 #[macro_export]
 macro_rules! ok_or_return_null {
-    ($result:expr, $mapper:expr) => {
-        $crate::ok_or_return!($result, |v| v, std::ptr::null_mut(), $mapper)
+    ($result:expr, $error_enum:ty) => {
+        $crate::ok_or_return!($result, |v| v, std::ptr::null_mut(), $error_enum)
     };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, std::ptr::null_mut())
@@ -397,11 +423,11 @@ macro_rules! ok_or_return_null {
 
 /// Handle Result, early-return with 0 on error
 ///
-/// Supports both external errors (with mapper) and cimpl::Error (without mapper).
+/// Optionally accepts an error enum type for centralized external error conversion.
 #[macro_export]
 macro_rules! ok_or_return_zero {
-    ($result:expr, $mapper:expr) => {
-        $crate::ok_or_return!($result, |v| v, 0, $mapper)
+    ($result:expr, $error_enum:ty) => {
+        $crate::ok_or_return!($result, |v| v, 0, $error_enum)
     };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, 0)
@@ -410,11 +436,11 @@ macro_rules! ok_or_return_zero {
 
 /// Handle Result, early-return with false on error
 ///
-/// Supports both external errors (with mapper) and cimpl::Error (without mapper).
+/// Optionally accepts an error enum type for centralized external error conversion.
 #[macro_export]
 macro_rules! ok_or_return_false {
-    ($result:expr, $mapper:expr) => {
-        $crate::ok_or_return!($result, |v| v, false, $mapper)
+    ($result:expr, $error_enum:ty) => {
+        $crate::ok_or_return!($result, |v| v, false, $error_enum)
     };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, false)

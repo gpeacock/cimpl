@@ -17,6 +17,55 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Trait for error enums to provide FFI error codes and names
+///
+/// Implement this trait on your library's error enum to enable automatic,
+/// centralized error mapping in the `ok_or_return_*` macros.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // 1. Define your library's error enum
+/// #[repr(C)]
+/// #[derive(Debug, Clone, Copy)]
+/// pub enum UuidError {
+///     Ok = 0,
+///     // ... cimpl errors 1-99
+///     ParseError = 100,
+/// }
+///
+/// // 2. Implement CimplError trait on YOUR enum (no orphan rules!)
+/// impl cimpl::CimplError for UuidError {
+///     fn error_code(&self) -> i32 {
+///         *self as i32
+///     }
+///     
+///     fn error_name(&self) -> &'static str {
+///         match self {
+///             UuidError::ParseError => "ParseError",
+///             // Centralized string mapping!
+///         }
+///     }
+/// }
+///
+/// // 3. Map external errors to your enum (centralized conversion!)
+/// impl From<uuid::Error> for UuidError {
+///     fn from(_e: uuid::Error) -> Self {
+///         UuidError::ParseError
+///     }
+/// }
+///
+/// // 4. Now macros work automatically with your enum type!
+/// let uuid = ok_or_return_null!(Uuid::from_str(&s), UuidError);
+/// ```
+pub trait CimplError {
+    /// Returns the integer error code for this error
+    fn error_code(&self) -> i32;
+    
+    /// Returns a static string name for this error type
+    fn error_name(&self) -> &'static str;
+}
+
 // LAST_ERROR handling borrowed from Copyright (c) 2018 Michael Bryan
 thread_local! {
     static LAST_ERROR: RefCell<Option<Error>> = const { RefCell::new(None) };
@@ -168,45 +217,36 @@ impl Error {
         }
     }
 
-    /// Converts a library error using a mapping function
+    /// Converts an external error to a cimpl Error using the CimplError trait
     ///
-    /// This method provides a simple way to map external library errors to cimpl errors
-    /// using a function that directly maps errors to (code, name) pairs.
-    ///
-    /// # Arguments
-    ///
-    /// * `e` - The external error to convert
-    /// * `mapper` - A function that takes a reference to the error and returns `(code, name)`
-    ///
-    /// # Note
-    ///
-    /// This method is primarily used internally by the `ok_or_return!` macros via the
-    /// `ERROR_MAPPER` constant pattern. You typically don't need to call it directly.
+    /// This method is used internally by the `ok_or_return!` macros.
+    /// The error enum provides the code and name, while the external error provides context.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// // Define error codes
-    /// #[no_mangle]
-    /// pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
-    ///
-    /// // Define mapper function
-    /// const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) =
-    ///     |_e| (ERROR_UUID_PARSE_ERROR, "ParseError");
-    ///
-    /// // The ok_or_return! macros use ERROR_MAPPER automatically
-    /// #[no_mangle]
-    /// pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
-    ///     let s_str = cstr_or_return_null!(s);
-    ///     let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
-    ///     box_tracked!(uuid)
+    /// // Your error enum implements CimplError
+    /// impl CimplError for UuidError {
+    ///     fn error_code(&self) -> i32 { *self as i32 }
+    ///     fn error_name(&self) -> &'static str { "ParseError" }
     /// }
+    ///
+    /// // Macros convert external error -> enum -> cimpl::Error
+    /// let uuid = ok_or_return_null!(Uuid::from_str(&s), UuidError);
     /// ```
-    pub fn from_mapper<E: std::fmt::Display>(e: E, mapper: fn(&E) -> (i32, &'static str)) -> Self {
-        let (code, name) = mapper(&e);
-        Error::LibraryError(code, format!("{}: {}", name, e))
+    pub fn from_error_enum<ErrEnum, ExtErr>(external_err: ExtErr) -> Self 
+    where
+        ErrEnum: CimplError + From<ExtErr>,
+        ExtErr: std::fmt::Display,
+    {
+        let display_msg = format!("{}", external_err);
+        let err_enum = ErrEnum::from(external_err);
+        let code = err_enum.error_code();
+        let name = err_enum.error_name();
+        Error::LibraryError(code, format!("{}: {}", name, display_msg))
     }
 
+ 
     /// Sets the last error
     pub fn set_last(self) {
         LAST_ERROR.with(|prev| *prev.borrow_mut() = Some(self));
