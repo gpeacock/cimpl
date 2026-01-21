@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use cimpl::{
     box_tracked, cstr_or_return_null, deref_or_return_false, deref_or_return_null,
-    deref_or_return_zero, ok_or_return_null, to_c_bytes, to_c_string, Error,
+    deref_or_return_zero, ok_or_return_null, option_to_c_string, to_c_bytes, to_c_string, Error,
 };
 
 // Use uuid::Uuid directly - it's already opaque to C!
@@ -195,10 +195,7 @@ pub extern "C" fn uuid_error_code() -> i32 {
 /// Gets the error message for the last error.
 #[no_mangle]
 pub extern "C" fn uuid_last_error() -> *mut c_char {
-    match Error::last_message() {
-        Some(msg) => to_c_string(msg),
-        None => std::ptr::null_mut(),
-    }
+    option_to_c_string!(Error::last_message())
 }
 
 /// Clears the last error.

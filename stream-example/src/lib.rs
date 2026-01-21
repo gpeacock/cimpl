@@ -37,7 +37,8 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use cimpl::{
-    box_tracked, deref_mut_or_return_neg, ok_or_return, ptr_or_return_int, ptr_or_return_null, Error,
+    box_tracked, deref_mut_or_return_neg, ok_or_return, option_to_c_string, ptr_or_return_int,
+    ptr_or_return_null, Error,
 };
 
 // ============================================================================
@@ -478,10 +479,7 @@ impl Write for CimplStream {
 /// ```
 #[no_mangle]
 pub extern "C" fn cimpl_stream_last_error() -> *mut std::os::raw::c_char {
-    match Error::last_message() {
-        Some(msg) => cimpl::to_c_string(msg),
-        None => std::ptr::null_mut(),
-    }
+    option_to_c_string!(Error::last_message())
 }
 
 /// Gets the last error code.

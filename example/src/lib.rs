@@ -29,7 +29,8 @@ use std::os::raw::c_char;
 
 use cimpl::{
     box_tracked, cstr_or_return_int, cstr_or_return_null, deref_mut_or_return_neg,
-    deref_or_return_null, deref_or_return_zero, ptr_or_return_int, to_c_string, Error,
+    deref_or_return_null, deref_or_return_zero, option_to_c_string, ptr_or_return_int,
+    to_c_string, Error,
 };
 
 // ============================================================================
@@ -327,10 +328,7 @@ pub extern "C" fn mystring_error_code() -> i32 {
 /// ```
 #[no_mangle]
 pub extern "C" fn mystring_last_error() -> *mut c_char {
-    match Error::last_message() {
-        Some(msg) => to_c_string(msg),
-        None => std::ptr::null_mut(),
-    }
+    option_to_c_string!(Error::last_message())
 }
 
 /// Clears the last error.

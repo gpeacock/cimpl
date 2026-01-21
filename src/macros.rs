@@ -353,6 +353,29 @@ macro_rules! cstr_option {
     }};
 }
 
+/// Converts an `Option<String>` to a C string pointer.
+/// Returns `null_mut()` if the Option is None.
+///
+/// This is commonly used for FFI functions that return optional strings,
+/// such as error messages that may or may not be present.
+///
+/// # Example
+/// ```rust,ignore
+/// #[no_mangle]
+/// pub extern "C" fn get_error_message() -> *mut c_char {
+///     option_to_c_string!(Error::last_message())
+/// }
+/// ```
+#[macro_export]
+macro_rules! option_to_c_string {
+    ($opt:expr) => {
+        match $opt {
+            Some(msg) => $crate::to_c_string(msg),
+            None => std::ptr::null_mut(),
+        }
+    };
+}
+
 // ============================================================================
 // Core Flexible Macros (explicit "return" makes control flow clear)
 // ============================================================================
