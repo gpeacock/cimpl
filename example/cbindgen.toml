@@ -170,7 +170,7 @@ int32_t cimpl_free(void *ptr);
 
 [export]
 # Only export items explicitly marked with #[no_mangle] and pub extern "C"
-include = ["MyString", "ErrorCode"]
+include = ["MyString", "ExampleError"]
 
 [enum]
 # Make error codes use standard C naming

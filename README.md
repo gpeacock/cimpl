@@ -145,7 +145,13 @@ cbindgen = "0.27"
    - Clean, documented code
    - Perfect for learning the basics
 
-2. **[uuid-example/](./uuid-example/)** - **Advanced**: Wrapping external crates with AI
+2. **[stream-example/](./stream-example/)** - **Callback Pattern**: Stream I/O with callbacks
+   - Shows how to implement callback-based streams
+   - Bridges C callbacks to Rust's Read/Write/Seek traits
+   - Real-world pattern used in libraries like C2PA
+   - Demonstrates bidirectional function pointer usage
+
+3. **[uuid-example/](./uuid-example/)** - **Advanced**: Wrapping external crates with AI
    - Shows how to wrap the `uuid` crate (external dependency)
    - Demonstrates AI-assisted binding generation for Python, Lua, C++
    - See [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md) for the AI workflow
@@ -169,6 +175,8 @@ cbindgen = "0.27"
 - **[TABLE_BASED_ERROR_MAPPING.md](./TABLE_BASED_ERROR_MAPPING.md)** - Error handling system
 - **[MACRO_PATTERNS.md](./MACRO_PATTERNS.md)** - Complete macro reference
 - **[STANDARD_C_CONVENTIONS.md](./STANDARD_C_CONVENTIONS.md)** - Error conventions
+- **[ENUM_ERROR_PATTERN.md](./ENUM_ERROR_PATTERN.md)** - Best practices for using C enums for error codes
+- **[NAMESPACE_COLLISION_FIX.md](./NAMESPACE_COLLISION_FIX.md)** - Preventing enum namespace collisions with cbindgen
 
 ### Examples with Full Bindings
 - **[example](./example/)** - **START HERE**: String manipulation demonstrating all cimpl patterns

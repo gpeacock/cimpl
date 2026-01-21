@@ -102,7 +102,7 @@ impl Drop for PointerRegistry {
 }
 
 /// Get the global pointer registry
-pub fn get_registry() -> &'static PointerRegistry {
+pub(crate) fn get_registry() -> &'static PointerRegistry {
     use std::sync::OnceLock;
     static REGISTRY: OnceLock<PointerRegistry> = OnceLock::new();
     REGISTRY.get_or_init(PointerRegistry::new)
@@ -155,34 +155,6 @@ pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
 
 /// Universal free function for any tracked pointer
 ///
-/// Frees any pointer that was allocated and tracked through cimpl
-/// (Box, Arc, Arc<Mutex>, etc.). The correct destructor is automatically called
-/// based on how the pointer was tracked.
-///
-/// # Returns
-/// - `Ok(())` if the pointer was successfully freed
-/// - `Err(Error)` if the pointer was not tracked (invalid or double-free)
-///
-/// # Safety
-/// - Safe to call with NULL (returns Ok)
-/// - Safe to call with any pointer tracked via `track_box()`, `track_arc()`, etc.
-/// - DO NOT call on untracked pointers or pointers you allocated yourself
-///
-/// # Example
-/// ```rust,no_run
-/// use cimpl::{track_box, free_tracked_pointer};
-///
-/// let ptr = Box::into_raw(Box::new(42));
-/// track_box(ptr);
-/// // ... use ptr ...
-/// free_tracked_pointer(ptr as *mut u8).unwrap();
-/// ```
-pub fn free_tracked_pointer(ptr: *mut u8) -> Result<(), Error> {
-    get_registry().free(ptr as usize)
-}
-
-/// C-compatible wrapper for `free_tracked_pointer`
-///
 /// This is the universal free function exposed to C. It works for ANY pointer
 /// that was allocated and tracked through cimpl, regardless of the wrapper type
 /// (Box, Arc, etc.) or the underlying Rust type.
@@ -206,126 +178,13 @@ pub fn free_tracked_pointer(ptr: *mut u8) -> Result<(), Error> {
 /// ```
 #[no_mangle]
 pub extern "C" fn cimpl_free(ptr: *mut std::ffi::c_void) -> i32 {
-    match free_tracked_pointer(ptr as *mut u8) {
+    match get_registry().free(ptr as usize) {
         Ok(()) => 0,
         Err(e) => {
             e.set_last();
             -1
         }
     }
-}
-
-// ============================================================================
-// Raw Pointer Allocation Tracking (for C strings and buffers)
-// ============================================================================
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AllocationType {
-    String,
-    ByteArray,
-}
-
-struct AllocationInfo {
-    allocation_type: AllocationType,
-    size: usize,
-}
-
-pub struct AllocationTracker {
-    allocations: Mutex<HashMap<usize, AllocationInfo>>,
-}
-
-impl AllocationTracker {
-    fn new() -> Self {
-        Self {
-            allocations: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Track a new allocation
-    fn track(&self, ptr: *const u8, size: usize, allocation_type: AllocationType) {
-        if !ptr.is_null() {
-            let mut allocations = self.allocations.lock().unwrap();
-            allocations.insert(
-                ptr as usize,
-                AllocationInfo {
-                    allocation_type,
-                    size,
-                },
-            );
-        }
-    }
-
-    /// Untrack an allocation, returning true if it was tracked
-    fn untrack(&self, ptr: *const u8) -> bool {
-        if ptr.is_null() {
-            return true; // NULL is always safe to "free"
-        }
-        let mut allocations = self.allocations.lock().unwrap();
-        allocations.remove(&(ptr as usize)).is_some()
-    }
-}
-
-impl Drop for AllocationTracker {
-    fn drop(&mut self) {
-        let allocations = self.allocations.lock().unwrap();
-        if !allocations.is_empty() {
-            let mut string_count = 0;
-            let mut string_bytes = 0;
-            let mut array_count = 0;
-            let mut array_bytes = 0;
-
-            for info in allocations.values() {
-                match info.allocation_type {
-                    AllocationType::String => {
-                        string_count += 1;
-                        string_bytes += info.size;
-                    }
-                    AllocationType::ByteArray => {
-                        array_count += 1;
-                        array_bytes += info.size;
-                    }
-                }
-            }
-
-            eprintln!(
-                "\n⚠️  WARNING: {} raw allocation(s) were not freed at shutdown!",
-                allocations.len()
-            );
-            if string_count > 0 {
-                eprintln!(
-                    "  - {} string(s) (approx. {} bytes)",
-                    string_count, string_bytes
-                );
-            }
-            if array_count > 0 {
-                eprintln!(
-                    "  - {} byte array(s) (approx. {} bytes)",
-                    array_count, array_bytes
-                );
-            }
-            eprintln!("This indicates C code did not properly free all allocated memory.\n");
-        }
-    }
-}
-
-// Single global allocation tracker
-pub fn get_allocations() -> &'static AllocationTracker {
-    use std::sync::OnceLock;
-    static ALLOCATIONS: OnceLock<AllocationTracker> = OnceLock::new();
-    ALLOCATIONS.get_or_init(AllocationTracker::new)
-}
-
-// Public API for tracking allocations
-pub fn track_string_allocation(ptr: *const i8, len: usize) {
-    get_allocations().track(ptr as *const u8, len, AllocationType::String);
-}
-
-pub fn track_bytes_allocation(ptr: *const u8, len: usize) {
-    get_allocations().track(ptr, len, AllocationType::ByteArray);
-}
-
-pub fn untrack_allocation(ptr: *const u8) -> bool {
-    get_allocations().untrack(ptr)
 }
 
 // ============================================================================
@@ -414,11 +273,17 @@ pub unsafe fn safe_slice_from_raw_parts(
 /// The returned pointer must be freed exactly once by C code
 pub fn to_c_string(s: String) -> *mut std::os::raw::c_char {
     use std::ffi::CString;
-    let len = s.len();
     match CString::new(s) {
         Ok(c_str) => {
             let ptr = c_str.into_raw();
-            track_string_allocation(ptr, len + 1); // +1 for null terminator
+            let ptr_val = ptr as usize;
+            get_registry().track(
+                ptr_val,
+                TypeId::of::<CString>(),
+                Box::new(move || unsafe {
+                    drop(CString::from_raw(ptr_val as *mut std::os::raw::c_char))
+                }),
+            );
             ptr
         }
         Err(_) => std::ptr::null_mut(),
@@ -441,74 +306,21 @@ pub fn to_c_string(s: String) -> *mut std::os::raw::c_char {
 pub fn to_c_bytes(bytes: Vec<u8>) -> *const c_uchar {
     let len = bytes.len();
     let ptr = Box::into_raw(bytes.into_boxed_slice()) as *const c_uchar;
-    track_bytes_allocation(ptr, len);
+    let ptr_val = ptr as usize;
+    get_registry().track(
+        ptr_val,
+        TypeId::of::<Box<[u8]>>(),
+        Box::new(move || {
+            unsafe {
+                // Reconstruct the slice with the original length
+                drop(Box::from_raw(std::slice::from_raw_parts_mut(
+                    ptr_val as *mut u8,
+                    len,
+                )))
+            }
+        }),
+    );
     ptr
-}
-
-/// Safely frees a tracked C string
-///
-/// Validates that the pointer was allocated and tracked by Rust before freeing.
-/// NULL pointers are safely ignored. Attempts to free untracked or already-freed
-/// pointers are detected and logged.
-///
-/// # Arguments
-/// * `ptr` - Pointer to the C string to free
-///
-/// # Returns
-/// * `true` if the string was tracked and freed successfully, or if ptr was NULL
-/// * `false` if the string was not tracked (double-free or invalid pointer)
-///
-/// # Safety
-/// This function is safe to call with NULL or invalid pointers - it will not panic
-pub unsafe fn free_c_string(ptr: *mut std::os::raw::c_char) -> bool {
-    use std::ffi::CString;
-
-    if ptr.is_null() {
-        return true; // NULL is always safe
-    }
-
-    if untrack_allocation(ptr as *const u8) {
-        drop(CString::from_raw(ptr));
-        true
-    } else {
-        eprintln!(
-            "WARNING: Attempt to free untracked or already-freed string pointer: {:p}",
-            ptr
-        );
-        false
-    }
-}
-
-/// Safely frees a tracked C byte array
-///
-/// Validates that the pointer was allocated and tracked by Rust before freeing.
-/// NULL pointers are safely ignored. Attempts to free untracked or already-freed
-/// pointers are detected and logged.
-///
-/// # Arguments
-/// * `ptr` - Pointer to the byte array to free
-///
-/// # Returns
-/// * `true` if the array was tracked and freed successfully, or if ptr was NULL
-/// * `false` if the array was not tracked (double-free or invalid pointer)
-///
-/// # Safety
-/// This function is safe to call with NULL or invalid pointers - it will not panic
-pub unsafe fn free_c_bytes(ptr: *const c_uchar) -> bool {
-    if ptr.is_null() {
-        return true; // NULL is always safe
-    }
-
-    if untrack_allocation(ptr) {
-        drop(Box::from_raw(ptr as *mut c_uchar));
-        true
-    } else {
-        eprintln!(
-            "WARNING: Attempt to free untracked or already-freed byte array pointer: {:p}",
-            ptr
-        );
-        false
-    }
 }
 
 #[cfg(test)]
@@ -525,37 +337,12 @@ mod tests {
         assert!(!c_string.is_null());
 
         // First free should succeed
-        let result1 = unsafe { free_c_string(c_string) };
-        assert!(result1);
+        let result1 = cimpl_free(c_string as *mut std::ffi::c_void);
+        assert_eq!(result1, 0);
 
-        // Second free should be detected and logged (not panic)
-        let result2 = unsafe { free_c_string(c_string) };
-        assert!(!result2);
-    }
-
-    #[test]
-    fn test_allocation_tracking_null_free() {
-        // Test that freeing NULL is safe
-        let result1 = unsafe { free_c_string(std::ptr::null_mut()) };
-        assert!(result1);
-
-        let result2 = unsafe { free_c_bytes(std::ptr::null()) };
-        assert!(result2);
-    }
-
-    #[test]
-    fn test_allocation_tracking_double_free_bytes() {
-        // Test that double-freeing byte arrays is detected
-        let test_bytes = vec![1u8, 2, 3, 4, 5];
-        let ptr = to_c_bytes(test_bytes);
-
-        // First free should succeed
-        let result1 = unsafe { free_c_bytes(ptr) };
-        assert!(result1);
-
-        // Second free should be detected and logged (not panic)
-        let result2 = unsafe { free_c_bytes(ptr) };
-        assert!(!result2);
+        // Second free should be detected and return error
+        let result2 = cimpl_free(c_string as *mut std::ffi::c_void);
+        assert_eq!(result2, -1);
     }
 
     #[test]
@@ -566,7 +353,7 @@ mod tests {
         assert!(!c_string.is_null());
 
         // Clean up
-        unsafe { free_c_string(c_string) };
+        cimpl_free(c_string as *mut std::ffi::c_void);
     }
 
     #[test]
@@ -577,7 +364,7 @@ mod tests {
         assert!(!ptr.is_null());
 
         // Clean up
-        unsafe { free_c_bytes(ptr) };
+        cimpl_free(ptr as *mut std::ffi::c_void);
     }
 
     #[test]

@@ -29,7 +29,7 @@ use std::os::raw::c_char;
 
 use cimpl::{
     box_tracked, cstr_or_return_int, cstr_or_return_null, deref_mut_or_return_neg,
-    deref_or_return_null, deref_or_return_zero, ptr_or_return_int, to_c_string, Error, ErrorCode,
+    deref_or_return_null, deref_or_return_zero, ptr_or_return_int, to_c_string, Error,
 };
 
 // ============================================================================
@@ -222,41 +222,39 @@ pub extern "C" fn mystring_to_uppercase(ptr: *mut MyString) -> *mut c_char {
 /// - -1 if the string was not allocated by this library
 #[no_mangle]
 pub extern "C" fn mystring_string_free(str: *mut c_char) -> i32 {
-    ptr_or_return_int!(str);
-    if unsafe { cimpl::free_c_string(str) } {
-        0
-    } else {
-        -1
-    }
+    unsafe { cimpl::cimpl_free(str as *mut std::ffi::c_void) }
 }
 
 // ============================================================================
-// C FFI - Error Code Constants
+// Error Codes
 // ============================================================================
 
-/// Error code constant: No error
-#[no_mangle]
-pub static ERROR_OK: i32 = ErrorCode::Ok as i32;
-
-/// Error code constant: NULL parameter
-#[no_mangle]
-pub static ERROR_NULL_PARAMETER: i32 = ErrorCode::NullParameter as i32;
-
-/// Error code constant: String too long
-#[no_mangle]
-pub static ERROR_STRING_TOO_LONG: i32 = ErrorCode::StringTooLong as i32;
-
-/// Error code constant: Invalid handle
-#[no_mangle]
-pub static ERROR_INVALID_HANDLE: i32 = ErrorCode::InvalidHandle as i32;
-
-/// Error code constant: Wrong handle type
-#[no_mangle]
-pub static ERROR_WRONG_HANDLE_TYPE: i32 = ErrorCode::WrongHandleType as i32;
-
-/// Error code constant: Other error
-#[no_mangle]
-pub static ERROR_OTHER: i32 = ErrorCode::Other as i32;
+/// Error codes for example library operations
+///
+/// This enum provides all possible error codes returned by example library functions.
+/// Currently, it only includes the core cimpl errors, but library-specific errors
+/// can be added starting at 100.
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExampleError {
+    /// No error occurred
+    Ok = 0,
+    /// A required parameter was NULL
+    NullParameter = 1,
+    /// String exceeds maximum allowed length
+    StringTooLong = 2,
+    /// Handle value is invalid or already freed
+    InvalidHandle = 3,
+    /// Handle type doesn't match the expected type
+    WrongHandleType = 4,
+    /// Other unspecified error
+    Other = 5,
+    
+    // Library-specific errors can be added here starting at 100
+    // Example:
+    // /// String buffer is full
+    // BufferFull = 100,
+}
 
 // ============================================================================
 // C FFI - Error Handling
@@ -372,7 +370,7 @@ mod tests {
         let result = mystring_free(handle);
         assert_eq!(result, 0);
 
-        unsafe { free_c_string(initial as *mut c_char) };
+        unsafe { cimpl::cimpl_free(initial as *mut std::ffi::c_void) };
     }
 
     #[test]
@@ -386,8 +384,8 @@ mod tests {
         unsafe {
             let rust_string = std::ffi::CStr::from_ptr(value).to_string_lossy();
             assert_eq!(rust_string, "hello");
-            free_c_string(value);
-            free_c_string(initial as *mut c_char);
+            cimpl::cimpl_free(value as *mut std::ffi::c_void);
+            cimpl::cimpl_free(initial as *mut std::ffi::c_void);
         }
 
         mystring_free(handle);
@@ -406,9 +404,11 @@ mod tests {
         unsafe {
             let rust_string = std::ffi::CStr::from_ptr(value).to_string_lossy();
             assert_eq!(rust_string, "new");
-            free_c_string(value);
-            free_c_string(initial as *mut c_char);
-            free_c_string(new_val as *mut c_char);
+            unsafe {
+                cimpl::cimpl_free(value as *mut std::ffi::c_void);
+                cimpl::cimpl_free(initial as *mut std::ffi::c_void);
+                cimpl::cimpl_free(new_val as *mut std::ffi::c_void);
+            }
         }
 
         mystring_free(handle);
@@ -423,8 +423,10 @@ mod tests {
         unsafe {
             let rust_string = std::ffi::CStr::from_ptr(upper).to_string_lossy();
             assert_eq!(rust_string, "HELLO");
-            free_c_string(upper);
-            free_c_string(initial as *mut c_char);
+            unsafe {
+                cimpl::cimpl_free(upper as *mut std::ffi::c_void);
+                cimpl::cimpl_free(initial as *mut std::ffi::c_void);
+            }
         }
 
         mystring_free(handle);
@@ -443,9 +445,11 @@ mod tests {
         unsafe {
             let rust_string = std::ffi::CStr::from_ptr(value).to_string_lossy();
             assert_eq!(rust_string, "Hello, World!");
-            free_c_string(value);
-            free_c_string(initial as *mut c_char);
-            free_c_string(suffix as *mut c_char);
+            unsafe {
+                cimpl::cimpl_free(value as *mut std::ffi::c_void);
+                cimpl::cimpl_free(initial as *mut std::ffi::c_void);
+                cimpl::cimpl_free(suffix as *mut std::ffi::c_void);
+            }
         }
 
         mystring_free(handle);
@@ -459,7 +463,7 @@ mod tests {
         let len = mystring_len(handle);
         assert_eq!(len, 5);
 
-        unsafe { free_c_string(initial as *mut c_char) };
+        unsafe { cimpl::cimpl_free(initial as *mut std::ffi::c_void) };
         mystring_free(handle);
     }
 
@@ -475,7 +479,7 @@ mod tests {
         unsafe {
             let error_msg = std::ffi::CStr::from_ptr(error).to_string_lossy();
             assert!(error_msg.contains("NullParameter"));
-            free_c_string(error);
+            unsafe { cimpl::cimpl_free(error as *mut std::ffi::c_void) };
         }
 
         mystring_clear_error();
