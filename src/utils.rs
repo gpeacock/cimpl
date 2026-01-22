@@ -25,7 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::error::Error;
+use crate::error::{CimplError, Error};
 
 // ============================================================================
 // Pointer Registry - Tracks pointers with their cleanup functions
@@ -57,14 +57,14 @@ impl PointerRegistry {
     /// Validate that a pointer is tracked and has the expected type
     pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), Error> {
         if ptr == 0 {
-            return Err(Error::NullParameter("pointer".to_string()));
+            return Err(Error::from(CimplError::NullParameter("pointer".to_string())));
         }
 
         let tracked = self.tracked.lock().unwrap();
         match tracked.get(&ptr) {
             Some((actual_type, _)) if *actual_type == expected_type => Ok(()),
-            Some(_) => Err(Error::WrongHandleType(ptr as u64)),
-            None => Err(Error::InvalidHandle(ptr as u64)),
+            Some(_) => Err(Error::from(CimplError::WrongHandleType(ptr as u64))),
+            None => Err(Error::from(CimplError::InvalidHandle(ptr as u64))),
         }
     }
 
@@ -78,7 +78,7 @@ impl PointerRegistry {
             let mut tracked = self.tracked.lock().unwrap();
             match tracked.remove(&ptr) {
                 Some((_, cleanup)) => cleanup,
-                None => return Err(Error::InvalidHandle(ptr as u64)),
+                None => return Err(Error::from(CimplError::InvalidHandle(ptr as u64))),
             }
         }; // Release lock before cleanup
 
@@ -246,13 +246,13 @@ pub unsafe fn safe_slice_from_raw_parts(
     param_name: &str,
 ) -> Result<&[u8], Error> {
     if ptr.is_null() {
-        return Err(Error::NullParameter(param_name.to_string()));
+        return Err(Error::from(CimplError::NullParameter(param_name.to_string())));
     }
 
     if !is_safe_buffer_size(len, ptr) {
-        return Err(Error::Other(format!(
+        return Err(Error::from(CimplError::Other(format!(
             "Buffer size {len} is invalid for parameter '{param_name}'",
-        )));
+        ))));
     }
 
     Ok(std::slice::from_raw_parts(ptr, len))

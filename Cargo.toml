@@ -11,7 +11,6 @@ keywords = ["ffi", "bindings", "c", "utilities", "macros"]
 categories = ["api-bindings", "development-tools::ffi"]
 
 [dependencies]
-thiserror = "2.0.17"
 paste = "1.0"
 
 [dev-dependencies]

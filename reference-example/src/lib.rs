@@ -29,31 +29,23 @@ use std::collections::HashMap;
 use std::os::raw::c_char;
 
 use cimpl::{
-    box_tracked, cimpl_free, cstr_or_return_null, deref_or_return_false, 
-    deref_or_return_null, ok_or_return_false, ok_or_return_null, 
-    option_to_c_string, some_or_return_other_null, to_c_bytes, to_c_string, 
-    CimplError, Error,
+    box_tracked, cimpl_free, cstr_or_return_null,
+    deref_or_return_null, error::CimplError, ok_or_return_false, ok_or_return_null, 
+    option_to_c_string, to_c_bytes, to_c_string, 
+    Error,
 };
 
 // ============================================================================
-// Error Type Definitions (Step 1: Define what errors we will produce)
+// Error Type Definitions (Step 1: Define error code enum)
 // ============================================================================
 
 /// Error codes for Secret Message Processor
 ///
 /// This example defines its own error types (not from external crate).
 /// We use this to demonstrate the full error mapping pattern.
-#[repr(C)]
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecretError {
-    // cimpl infrastructure errors (0-99)
-    Ok = 0,
-    NullParameter = 1,
-    StringTooLong = 2,
-    InvalidHandle = 3,
-    WrongHandleType = 4,
-    Other = 5,
-    
     // Our custom errors (100+)
     InvalidHex = 100,      // Hex decoding failed
     InvalidFormat = 101,   // Message format invalid
@@ -62,32 +54,7 @@ pub enum SecretError {
 }
 
 // ============================================================================
-// Error Trait Implementation (Step 2: Centralized error code/name mapping)
-// ============================================================================
-
-impl CimplError for SecretError {
-    fn error_code(&self) -> i32 {
-        *self as i32
-    }
-    
-    fn error_name(&self) -> &'static str {
-        match self {
-            SecretError::Ok => "Ok",
-            SecretError::NullParameter => "NullParameter",
-            SecretError::StringTooLong => "StringTooLong",
-            SecretError::InvalidHandle => "InvalidHandle",
-            SecretError::WrongHandleType => "WrongHandleType",
-            SecretError::Other => "Other",
-            SecretError::InvalidHex => "InvalidHex",
-            SecretError::InvalidFormat => "InvalidFormat",
-            SecretError::TooShort => "TooShort",
-            SecretError::TooLong => "TooLong",
-        }
-    }
-}
-
-// ============================================================================
-// Internal Error Types (Step 3: Define internal errors)
+// Error Mapping (Step 2: Implement From trait for automatic conversion)
 // ============================================================================
 
 /// Our internal error type for operations that can fail
@@ -99,33 +66,23 @@ pub enum ProcessError {
     TooLong(usize, usize),  // got, max
 }
 
-impl std::fmt::Display for ProcessError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ProcessError::InvalidHex(s) => write!(f, "Invalid hex character: {}", s),
-            ProcessError::InvalidFormat(s) => write!(f, "Invalid format: {}", s),
-            ProcessError::TooShort(got, expected) => {
-                write!(f, "Message too short: got {}, expected at least {}", got, expected)
-            }
-            ProcessError::TooLong(got, max) => {
-                write!(f, "Message too long: got {}, max {}", got, max)
-            }
-        }
-    }
-}
-
-// ============================================================================
-// External Error Mapping (Step 4: Map our errors to enum)
-// ============================================================================
-
-impl From<ProcessError> for SecretError {
+impl From<ProcessError> for Error {
     fn from(e: ProcessError) -> Self {
-        match e {
-            ProcessError::InvalidHex(_) => SecretError::InvalidHex,
-            ProcessError::InvalidFormat(_) => SecretError::InvalidFormat,
-            ProcessError::TooShort(_, _) => SecretError::TooShort,
-            ProcessError::TooLong(_, _) => SecretError::TooLong,
-        }
+        let (code, name, detail) = match e {
+            ProcessError::InvalidHex(ref s) => (SecretError::InvalidHex, "InvalidHex", s.clone()),
+            ProcessError::InvalidFormat(ref s) => (SecretError::InvalidFormat, "InvalidFormat", s.clone()),
+            ProcessError::TooShort(got, expected) => (
+                SecretError::TooShort, 
+                "TooShort", 
+                format!("got {}, expected at least {}", got, expected)
+            ),
+            ProcessError::TooLong(got, max) => (
+                SecretError::TooLong, 
+                "TooLong", 
+                format!("got {}, max {}", got, max)
+            ),
+        };
+        Error::new(code as i32, format!("{}: {}", name, detail))
     }
 }
 
@@ -296,11 +253,11 @@ pub extern "C" fn secret_to_hex(input: *const c_char) -> *mut c_char {
 }
 
 /// Decodes hex string to text (can fail!)
-/// Tests: cstr_or_return_null!, ok_or_return_null! with SecretError
+/// Tests: cstr_or_return_null!, ok_or_return_null! with automatic From conversion
 #[no_mangle]
 pub extern "C" fn secret_from_hex(hex: *const c_char) -> *mut c_char {
     let hex_str = cstr_or_return_null!(hex);
-    let decoded = ok_or_return_null!(from_hex(&hex_str), SecretError);
+    let decoded = ok_or_return_null!(from_hex(&hex_str));
     to_c_string(decoded)
 }
 
@@ -318,7 +275,7 @@ pub extern "C" fn secret_validate_length(
 ) -> bool {
     use cimpl::cstr_or_return;
     let text = cstr_or_return!(input, false);
-    ok_or_return_false!(validate_length(&text, min_len, max_len), SecretError);
+    ok_or_return_false!(validate_length(&text, min_len, max_len));
     true
 }
 
@@ -404,15 +361,14 @@ pub extern "C" fn secret_to_bytes(input: *const c_char, out_len: *mut usize) -> 
 #[no_mangle]
 pub extern "C" fn secret_from_bytes(data: *const u8, len: usize) -> *mut c_char {
     if data.is_null() {
-        Error::NullParameter("data".to_string()).set_last();
+        Error::from(CimplError::NullParameter("data".to_string())).set_last();
         return std::ptr::null_mut();
     }
     
     let bytes = unsafe { std::slice::from_raw_parts(data, len) };
     let text = ok_or_return_null!(
         String::from_utf8(bytes.to_vec())
-            .map_err(|_| ProcessError::InvalidFormat("invalid UTF-8".to_string())),
-        SecretError
+            .map_err(|_| ProcessError::InvalidFormat("invalid UTF-8".to_string()))
     );
     to_c_string(text)
 }
@@ -507,22 +463,14 @@ pub extern "C" fn message_get_stats(msg: *mut SecretMessage) -> *mut MessageStat
 /// Gets the error code of the last error (0 if no error)
 #[no_mangle]
 pub extern "C" fn secret_error_code() -> i32 {
-    Error::take_last()
-        .map(|e| e.code_as_i32())
-        .unwrap_or(0)
+    Error::last_code()
 }
 
 /// Gets the error message of the last error (NULL if no error)
 /// Caller must free the returned string with secret_free()
 #[no_mangle]
 pub extern "C" fn secret_last_error() -> *mut c_char {
-    option_to_c_string!(Error::take_last().map(|e| e.to_string()))
-}
-
-/// Clears the last error
-#[no_mangle]
-pub extern "C" fn secret_clear_error() {
-    Error::take_last();
+    option_to_c_string!(Error::last_message())
 }
 
 // ============================================================================

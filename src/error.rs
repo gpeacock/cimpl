@@ -13,247 +13,143 @@
 
 use std::cell::RefCell;
 
-use thiserror::Error;
-
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Trait for error enums to provide FFI error codes and names
-///
-/// Implement this trait on your library's error enum to enable automatic,
-/// centralized error mapping in the `ok_or_return_*` macros.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// // 1. Define your library's error enum
-/// #[repr(C)]
-/// #[derive(Debug, Clone, Copy)]
-/// pub enum UuidError {
-///     Ok = 0,
-///     // ... cimpl errors 1-99
-///     ParseError = 100,
-/// }
-///
-/// // 2. Implement CimplError trait on YOUR enum (no orphan rules!)
-/// impl cimpl::CimplError for UuidError {
-///     fn error_code(&self) -> i32 {
-///         *self as i32
-///     }
-///     
-///     fn error_name(&self) -> &'static str {
-///         match self {
-///             UuidError::ParseError => "ParseError",
-///             // Centralized string mapping!
-///         }
-///     }
-/// }
-///
-/// // 3. Map external errors to your enum (centralized conversion!)
-/// impl From<uuid::Error> for UuidError {
-///     fn from(_e: uuid::Error) -> Self {
-///         UuidError::ParseError
-///     }
-/// }
-///
-/// // 4. Now macros work automatically with your enum type!
-/// let uuid = ok_or_return_null!(Uuid::from_str(&s), UuidError);
-/// ```
-pub trait CimplError {
-    /// Returns the integer error code for this error
-    fn error_code(&self) -> i32;
-    
-    /// Returns a static string name for this error type
-    fn error_name(&self) -> &'static str;
-}
 
 // LAST_ERROR handling borrowed from Copyright (c) 2018 Michael Bryan
 thread_local! {
     static LAST_ERROR: RefCell<Option<Error>> = const { RefCell::new(None) };
 }
 
-/// Error codes for FFI - enables language bindings to create typed exceptions
+/// Internal error types for cimpl infrastructure (codes 1-99)
 ///
-/// This enum provides integer error codes that can be used by C/C++/Python/etc
-/// to create proper exception types. Each variant maps to an Error enum case.
+/// These errors are used internally by cimpl macros and utilities.
+/// Library developers should define their own error enums starting at code 100+.
 ///
-/// # Error Code Convention
-///
-/// Error codes follow this convention:
-/// - **0**: Ok (no error)
-/// - **1-999**: Reserved for cimpl library errors
-/// - **1000+**: Available for user library custom errors
-///
-/// # Example: User Library with Custom Errors
-///
-/// When building a library with cimpl, you can define custom error codes
-/// starting at 1000:
-///
-/// ```rust,no_run
-/// use cimpl::{ErrorCode, to_c_string};
-/// use std::ffi::c_char;
-/// use std::ptr::null_mut;
-///
-/// pub enum MyLibError {
-///     // Wrap cimpl errors (codes 1-999)
-///     Cimpl(cimpl::Error),
-///     
-///     // Custom errors (codes 1000+)
-///     DatabaseError(String),      // code 1000
-///     NetworkTimeout(String),     // code 1001
-///     InvalidCredentials(String), // code 1002
-/// }
-///
-/// impl MyLibError {
-///     pub fn code(&self) -> i32 {
-///         match self {
-///             MyLibError::Cimpl(e) => e.code_as_i32(),
-///             MyLibError::DatabaseError(_) => 1000,
-///             MyLibError::NetworkTimeout(_) => 1001,
-///             MyLibError::InvalidCredentials(_) => 1002,
-///         }
-///     }
-///     
-///     pub fn to_string(&self) -> String {
-///         match self {
-///             MyLibError::Cimpl(e) => e.to_string(),
-///             MyLibError::DatabaseError(msg) => format!("DatabaseError: {}", msg),
-///             MyLibError::NetworkTimeout(msg) => format!("NetworkTimeout: {}", msg),
-///             MyLibError::InvalidCredentials(msg) => format!("InvalidCredentials: {}", msg),
-///         }
-///     }
-/// }
-///
-/// // Expose to C with same pattern
-/// fn get_last_error() -> Option<MyLibError> { None } // stub
-///
-/// #[no_mangle]
-/// pub extern "C" fn mylib_error_code() -> i32 {
-///     get_last_error().map(|e| e.code()).unwrap_or(0)
-/// }
-///
-/// #[no_mangle]
-/// pub extern "C" fn mylib_last_error() -> *mut c_char {
-///     get_last_error().map(|e| to_c_string(e.to_string())).unwrap_or(null_mut())
-/// }
-/// ```
-///
-/// # C/C++ Usage
-/// ```cpp
-/// if (mylib_operation() != 0) {
-///     int code = mylib_error_code();
-///     if (code == ERROR_NULL_PARAMETER) {
-///         // Handle cimpl error
-///     } else if (code >= 1000) {
-///         // Handle custom library error
-///     }
-/// }
-/// ```
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorCode {
-    /// No error occurred
-    Ok = 0,
+/// **Note:** While this enum is public (required for macro expansion), you should
+/// not construct these directly. Use the `cimpl` macros which handle error creation.
+#[derive(Debug, Clone)]
+pub enum CimplError {
     /// A required parameter was NULL
-    NullParameter = 1,
+    NullParameter(String),
     /// String exceeds maximum allowed length
-    StringTooLong = 2,
+    
+    #[allow(dead_code)]  // only used from macros that set the error
+    StringTooLong(String),
     /// Handle value is invalid or already freed
-    InvalidHandle = 3,
+    InvalidHandle(u64),
     /// Handle type doesn't match the expected type
-    WrongHandleType = 4,
+    WrongHandleType(u64),
     /// Other error occurred
-    Other = 5,
-    // 6-99: Reserved for future cimpl library errors
-    // 100+: Available for library-specific custom errors
+    Other(String),
 }
 
-#[derive(Error, Debug)]
-/// Defines all possible FFI errors
-pub enum Error {
-    #[error("NullParameter: {0}")]
-    NullParameter(String),
-    #[error("StringTooLong: {0}")]
-    StringTooLong(String),
-    #[error("InvalidHandle: {0}")]
-    InvalidHandle(u64),
-    #[error("WrongHandleType: {0}")]
-    WrongHandleType(u64),
-    #[error("Other: {0}")]
-    Other(String),
-    #[error("{1}")]
-    LibraryError(i32, String),
+impl From<CimplError> for Error {
+    fn from(e: CimplError) -> Self {
+        match e {
+            CimplError::NullParameter(param) => Error::new(1, format!("NullParameter: {}", param)),
+            CimplError::StringTooLong(param) => Error::new(2, format!("StringTooLong: {}", param)),
+            CimplError::InvalidHandle(id) => Error::new(3, format!("InvalidHandle: {}", id)),
+            CimplError::WrongHandleType(id) => Error::new(4, format!("WrongHandleType: {}", id)),
+            CimplError::Other(msg) => Error::new(5, format!("Other: {}", msg)),
+        }
+    }
+}
+
+/// FFI Error - holds an error code and message
+///
+/// This is a simple struct that can represent any error with an integer code
+/// and a descriptive message. Library developers implement `From` to convert
+/// their error types to this struct.
+///
+/// # Error Code Ranges
+///
+/// - **0**: No error (returned by error_code functions when no error is set)
+/// - **1-99**: Reserved for cimpl infrastructure errors
+/// - **100+**: Available for library-specific errors
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Define your error codes
+/// #[repr(i32)]
+/// pub enum MyLibError {
+///     ParseError = 100,
+///     ValidationError = 101,
+/// }
+///
+/// // Implement From for your error type
+/// impl From<mylib::Error> for cimpl::Error {
+///     fn from(e: mylib::Error) -> Self {
+///         match e {
+///             mylib::Error::Parse(msg) => {
+///                 cimpl::Error::new(
+///                     MyLibError::ParseError as i32,
+///                     format!("ParseError: {}", msg)
+///                 )
+///             }
+///             mylib::Error::Validation(msg) => {
+///                 cimpl::Error::new(
+///                     MyLibError::ValidationError as i32,
+///                     format!("ValidationError: {}", msg)
+///                 )
+///             }
+///         }
+///     }
+/// }
+///
+/// // Macros automatically use From/Into
+/// let result = ok_or_return_null!(parse_something());
+/// ```
+#[derive(Debug, Clone)]
+pub struct Error {
+    code: i32,
+    message: String,
 }
 
 impl Error {
-    /// Returns the last error as String
+    /// Creates a new error with the given code and message
+    pub fn new(code: i32, message: String) -> Self {
+        Self { code, message }
+    }
+
+    /// Peeks at the last error message without clearing it
+    ///
+    /// Returns None if no error is set. This does not clear the error.
     pub fn last_message() -> Option<String> {
-        LAST_ERROR.with(|prev| prev.borrow().as_ref().map(|e| e.to_string()))
+        LAST_ERROR.with(|prev| prev.borrow().as_ref().map(|e| e.message.clone()))
     }
 
-    /// Returns the last error code
+    /// Peeks at the last error code without clearing it
     ///
-    /// This is useful for creating typed exceptions in language bindings.
-    /// Returns 0 (ErrorCode::Ok) if no error is set.
+    /// Returns 0 if no error is set. This does not clear the error.
     ///
-    /// Error code ranges:
-    /// - 0: No error
-    /// - 1-99: Core cimpl infrastructure errors
-    /// - 100+: Library-specific errors
+    /// # Error Code Convention
+    ///
+    /// - **0**: No error set
+    /// - **1-99**: cimpl infrastructure errors
+    /// - **100+**: Library-specific errors
     pub fn last_code() -> i32 {
-        LAST_ERROR.with(|prev| prev.borrow().as_ref().map(|e| e.code_as_i32()).unwrap_or(0))
+        LAST_ERROR.with(|prev| prev.borrow().as_ref().map(|e| e.code).unwrap_or(0))
     }
 
-    /// Gets the error code for this error as an i32
-    ///
-    /// Maps each Error variant to its corresponding error code for FFI use.
-    pub fn code_as_i32(&self) -> i32 {
-        match self {
-            Error::NullParameter(_) => ErrorCode::NullParameter as i32,
-            Error::StringTooLong(_) => ErrorCode::StringTooLong as i32,
-            Error::InvalidHandle(_) => ErrorCode::InvalidHandle as i32,
-            Error::WrongHandleType(_) => ErrorCode::WrongHandleType as i32,
-            Error::Other(_) => ErrorCode::Other as i32,
-            Error::LibraryError(code, _) => *code,
-        }
-    }
-
-    /// Converts an external error to a cimpl Error using the CimplError trait
-    ///
-    /// This method is used internally by the `ok_or_return!` macros.
-    /// The error enum provides the code and name, while the external error provides context.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Your error enum implements CimplError
-    /// impl CimplError for UuidError {
-    ///     fn error_code(&self) -> i32 { *self as i32 }
-    ///     fn error_name(&self) -> &'static str { "ParseError" }
-    /// }
-    ///
-    /// // Macros convert external error -> enum -> cimpl::Error
-    /// let uuid = ok_or_return_null!(Uuid::from_str(&s), UuidError);
-    /// ```
-    pub fn from_error_enum<ErrEnum, ExtErr>(external_err: ExtErr) -> Self 
-    where
-        ErrEnum: CimplError + From<ExtErr>,
-        ExtErr: std::fmt::Display,
-    {
-        let display_msg = format!("{}", external_err);
-        let err_enum = ErrEnum::from(external_err);
-        let code = err_enum.error_code();
-        let name = err_enum.error_name();
-        Error::LibraryError(code, format!("{}: {}", name, display_msg))
-    }
-
- 
-    /// Sets the last error
+    /// Sets this error as the last error
     pub fn set_last(self) {
         LAST_ERROR.with(|prev| *prev.borrow_mut() = Some(self));
     }
 
-    /// Takes the the last error and clears it
+    /// Takes the last error and clears it
+    ///
+    /// This is rarely needed - errors naturally get overwritten by new errors.
+    /// Provided for completeness and testing.
     pub fn take_last() -> Option<Error> {
         LAST_ERROR.with(|prev| prev.borrow_mut().take())
     }
 }
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for Error {}

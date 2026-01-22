@@ -37,10 +37,10 @@
 //! - **Optional string**: `option_to_c_string!(opt)` → `None` becomes `NULL`
 //!
 //! ## Error Handling
-//! - **External crate Result**: `ok_or_return_null!(result, MyErrorEnum)` → centralized mapping via trait
+//! - **External crate Result**: `ok_or_return_null!(result)` → uses From trait automatically
 //! - **cimpl::Error Result**: `ok_or_return_null!(result)` → used directly
 //! - **Option<T> (validation)**: `some_or_return_other_null!(option, "message")` → most common case
-//! - **Option<T> (custom error)**: `some_or_return_null!(option, Error::InvalidHandle(id))` → specific error type
+//! - **Option<T> (custom error)**: `some_or_return_null!(option, Error::other(msg))` → specific error
 //!
 //! ## Naming Pattern
 //! All macros follow: `action_or_return_<what>`
@@ -55,8 +55,8 @@
 //! |------------------------|-----------------|-----------------------------------|---------|
 //! | `*mut T` (from C)      | -               | `deref_or_return_null!(ptr, T)`   | Getting object from C |
 //! | `*const c_char` (from C)| -              | `cstr_or_return_null!(s)`         | Getting string from C |
-//! | `Result<T, ExtErr>`    | pointer/int     | `ok_or_return_null!(r, MyEnum)`   | External crate errors (trait) |
-//! | `Result<T, cimpl::Err>`| pointer/int     | `f!(r)`           | Internal validation |
+//! | `Result<T, ExtErr>`    | pointer/int     | `ok_or_return_null!(r)`           | External crate errors (From trait) |
+//! | `Result<T, cimpl::Err>`| pointer/int     | `ok_or_return_null!(r)`           | Internal validation |
 //! | `Option<T>` validate   | pointer/int     | `some_or_return_other_null!(o, msg)` | Validation failures |
 //! | `Option<T>` custom     | pointer/int     | `some_or_return_null!(o, err)`    | Specific error needed |
 //! | `T` (owned)            | `*mut T`        | `box_tracked!(value)`             | Returning new object |
@@ -79,31 +79,27 @@
 //!
 //! ## Pattern 2: Parser (external crate Result with centralized mapping)
 //! ```rust,ignore
-//! // 1. Define error enum and implement trait (centralized!)
-//! #[repr(C)]
+//! // 1. Define error code enum
+//! #[repr(i32)]
 //! pub enum UuidError {
 //!     ParseError = 100,
 //! }
 //!
-//! impl CimplError for UuidError {
-//!     fn error_code(&self) -> i32 { *self as i32 }
-//!     fn error_name(&self) -> &'static str {
-//!         match self {
-//!             UuidError::ParseError => "ParseError",
-//!         }
+//! // 2. Implement From trait (centralized mapping!)
+//! impl From<uuid::Error> for cimpl::Error {
+//!     fn from(e: uuid::Error) -> Self {
+//!         cimpl::Error::new(
+//!             UuidError::ParseError as i32,
+//!             format!("ParseError: {}", e)
+//!         )
 //!     }
 //! }
 //!
-//! // 2. Map external error to your enum (centralized!)
-//! impl From<uuid::Error> for UuidError {
-//!     fn from(_: uuid::Error) -> Self { UuidError::ParseError }
-//! }
-//!
-//! // 3. Use in FFI (clean!)
+//! // 3. Use in FFI (automatic conversion via From!)
 //! #[no_mangle]
 //! pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
 //!     let s_str = cstr_or_return_null!(s);
-//!     let uuid = ok_or_return_null!(Uuid::from_str(&s_str), UuidError);
+//!     let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
 //!     box_tracked!(uuid)
 //! }
 //! ```
@@ -273,7 +269,10 @@ pub const MAX_CSTRING_LEN: usize = 65536;
 macro_rules! ptr_or_return {
     ($ptr:expr, $err_val:expr) => {
         if $ptr.is_null() {
-            $crate::Error::set_last($crate::Error::NullParameter(stringify!($ptr).to_string()));
+            $crate::Error::from($crate::error::CimplError::NullParameter(
+                stringify!($ptr).to_string(),
+            ))
+            .set_last();
             return $err_val;
         }
     };
@@ -287,7 +286,10 @@ macro_rules! cstr_or_return {
     ($ptr:expr, $err_val:expr) => {{
         let ptr = $ptr;
         if ptr.is_null() {
-            $crate::Error::set_last($crate::Error::NullParameter(stringify!($ptr).to_string()));
+            $crate::Error::from($crate::error::CimplError::NullParameter(
+                stringify!($ptr).to_string(),
+            ))
+            .set_last();
             return $err_val;
         } else {
             // SAFETY: We create a bounded slice up to MAX_CSTRING_LEN.
@@ -299,9 +301,10 @@ macro_rules! cstr_or_return {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => cstr.to_string_lossy().into_owned(),
                 Err(_) => {
-                    $crate::Error::set_last($crate::Error::StringTooLong(
+                    $crate::Error::from($crate::error::CimplError::StringTooLong(
                         stringify!($ptr).to_string(),
-                    ));
+                    ))
+                    .set_last();
                     return $err_val;
                 }
             }
@@ -339,42 +342,26 @@ macro_rules! cstr_or_return_with_limit {
 
 /// Handle Result or early-return with error value
 ///
-/// This macro handles Result types with centralized error conversion:
-/// - With enum type: Converts external errors using From trait and CimplError trait
-/// - Without enum: Uses error directly (must be cimpl::Error)
+/// This macro handles Result types using standard Rust From/Into conversion:
+/// - External errors are automatically converted via From trait
+/// - cimpl::Error is used directly
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // External error with error enum (centralized mapping!)
-/// let uuid = ok_or_return!(
-///     Uuid::from_str(&s), 
-///     |v| v, 
-///     std::ptr::null_mut(),
-///     UuidError
-/// );
+/// // External error - automatically converted via From<uuid::Error>
+/// let uuid = ok_or_return!(Uuid::from_str(&s), |v| v, std::ptr::null_mut());
 ///
-/// // With cimpl::Error (no enum needed)
+/// // With cimpl::Error
 /// let data = ok_or_return!(some_operation(), |v| v, std::ptr::null_mut());
 /// ```
 #[macro_export]
 macro_rules! ok_or_return {
-    // With error enum type for external error types
-    ($result:expr, $transform:expr, $err_val:expr, $error_enum:ty) => {
-        match $result {
-            Ok(value) => $transform(value),
-            Err(e) => {
-                $crate::Error::from_error_enum::<$error_enum, _>(e).set_last();
-                return $err_val;
-            }
-        }
-    };
-    // Without enum - assumes Result<T, cimpl::Error>
     ($result:expr, $transform:expr, $err_val:expr) => {
         match $result {
             Ok(value) => $transform(value),
-            Err(err) => {
-                err.set_last();
+            Err(e) => {
+                $crate::Error::from(e).set_last();
                 return $err_val;
             }
         }
@@ -387,12 +374,9 @@ macro_rules! ok_or_return {
 
 /// Handle Result, early-return with -1 (negative) on error
 ///
-/// Optionally accepts an error enum type for centralized external error conversion.
+/// Uses From trait for automatic error conversion.
 #[macro_export]
 macro_rules! ok_or_return_int {
-    ($result:expr, $error_enum:ty) => {
-        $crate::ok_or_return!($result, |v| v, -1, $error_enum)
-    };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, -1)
     };
@@ -400,22 +384,19 @@ macro_rules! ok_or_return_int {
 
 /// Handle Result, early-return with null on error
 ///
-/// Optionally accepts an error enum type for centralized external error conversion.
+/// Uses From trait for automatic error conversion.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // With error enum for external error (centralized mapping!)
-/// let uuid = ok_or_return_null!(Uuid::from_str(&s), UuidError);
+/// // Automatically converts external error via From trait
+/// let uuid = ok_or_return_null!(Uuid::from_str(&s));
 ///
-/// // Without enum for cimpl::Error
+/// // Works with cimpl::Error too
 /// let data = ok_or_return_null!(validate_something());
 /// ```
 #[macro_export]
 macro_rules! ok_or_return_null {
-    ($result:expr, $error_enum:ty) => {
-        $crate::ok_or_return!($result, |v| v, std::ptr::null_mut(), $error_enum)
-    };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, std::ptr::null_mut())
     };
@@ -423,12 +404,9 @@ macro_rules! ok_or_return_null {
 
 /// Handle Result, early-return with 0 on error
 ///
-/// Optionally accepts an error enum type for centralized external error conversion.
+/// Uses From trait for automatic error conversion.
 #[macro_export]
 macro_rules! ok_or_return_zero {
-    ($result:expr, $error_enum:ty) => {
-        $crate::ok_or_return!($result, |v| v, 0, $error_enum)
-    };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, 0)
     };
@@ -436,12 +414,9 @@ macro_rules! ok_or_return_zero {
 
 /// Handle Result, early-return with false on error
 ///
-/// Optionally accepts an error enum type for centralized external error conversion.
+/// Uses From trait for automatic error conversion.
 #[macro_export]
 macro_rules! ok_or_return_false {
-    ($result:expr, $error_enum:ty) => {
-        $crate::ok_or_return!($result, |v| v, false, $error_enum)
-    };
     ($result:expr) => {
         $crate::ok_or_return!($result, |v| v, false)
     };
@@ -537,9 +512,9 @@ macro_rules! some_or_return_false {
     };
 }
 
-/// Convenience macro: Handle Option with Error::Other message
+/// Convenience macro: Handle Option with Error::other message
 ///
-/// Automatically wraps the message string in Error::Other().
+/// Automatically wraps the message string in Error::other().
 /// This is the most common case for Option handling in FFI.
 ///
 /// # Examples
@@ -553,31 +528,31 @@ macro_rules! some_or_return_false {
 #[macro_export]
 macro_rules! some_or_return_other_null {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_null!($option, $crate::Error::Other($msg.to_string()))
+        $crate::some_or_return_null!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
-/// Convenience macro: Handle Option with Error::Other message, return -1
+/// Convenience macro: Handle Option with Error::other message, return -1
 #[macro_export]
 macro_rules! some_or_return_other_int {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_int!($option, $crate::Error::Other($msg.to_string()))
+        $crate::some_or_return_int!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
-/// Convenience macro: Handle Option with Error::Other message, return 0
+/// Convenience macro: Handle Option with Error::other message, return 0
 #[macro_export]
 macro_rules! some_or_return_other_zero {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_zero!($option, $crate::Error::Other($msg.to_string()))
+        $crate::some_or_return_zero!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
-/// Convenience macro: Handle Option with Error::Other message, return false
+/// Convenience macro: Handle Option with Error::other message, return false
 #[macro_export]
 macro_rules! some_or_return_other_false {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_false!($option, $crate::Error::Other($msg.to_string()))
+        $crate::some_or_return_false!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
