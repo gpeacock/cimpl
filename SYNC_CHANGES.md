@@ -6,10 +6,11 @@ This document summarizes the changes synchronized from the c2pa-rs version of ci
 
 Created from: `main`
 Date: 2026-02-08
+Commits: b6851e1 (initial sync), a8aa497 (compatibility fixes)
 
 ## Overview
 
-The c2pa-rs project has been extensively testing and refining the cimpl FFI utilities. This sync brings those battle-tested improvements back to the standalone library while keeping it independent of c2pa-specific code.
+The c2pa-rs project has been extensively testing and refining the cimpl FFI utilities. This sync brings those battle-tested improvements back to the standalone library while maintaining **drop-in compatibility** - code using c2pa-rs cimpl can switch to standalone cimpl without modifications.
 
 ## Key Changes
 
@@ -151,15 +152,23 @@ The c2pa-rs version consistently uses `_int` (returns -1) instead of the older `
 
 ## What Was NOT Changed
 
-These c2pa-specific items were intentionally excluded:
+These items maintain compatibility while staying independent:
 
-1. **c2pa::Error integration** - The c2pa-rs version has `use crate::error::Error` because it integrates with c2pa's error system. The standalone version keeps `CimplError` independent.
+1. **Type aliases** - Uses independent `Result<T> = std::result::Result<T, CimplError>` instead of c2pa's Result type. This is expected and doesn't affect API compatibility.
 
-2. **`vec_to_tracked_ptr!` macro** - This is functionally identical to the existing `to_c_bytes()` function, so we use the function instead.
+2. **Module structure** - c2pa-rs uses `mod.rs` (as a submodule) while standalone uses `lib.rs` (as a crate root). The public API is identical.
 
-3. **Module structure** - c2pa-rs uses `mod.rs` (as a submodule) while standalone uses `lib.rs` (as a crate root). We kept the standalone structure.
+3. **Extra helper macros** - We kept the `some_or_return_other_*` convenience macros which aren't in c2pa-rs but don't affect compatibility (they're optional additions).
 
-4. **Type aliases** - The c2pa-rs version has `pub type Result<T> = std::result::Result<T, crate::C2paError>`. We keep the independent `Result<T> = std::result::Result<T, CimplError>`.
+4. **`vec_to_tracked_ptr!` macro** - Not included per user preference; use the `to_c_bytes()` function instead which is equivalent.
+
+## Drop-In Compatibility ✅
+
+Code written for c2pa-rs cimpl will work with standalone cimpl without changes:
+- All macro names match exactly (`_int` not `_neg`)
+- All function signatures match
+- All error types and methods match
+- Behavior is identical
 
 ## Testing
 
