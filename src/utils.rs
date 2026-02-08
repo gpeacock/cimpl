@@ -141,36 +141,39 @@ pub(crate) fn get_registry() -> &'static PointerRegistry {
 ///
 /// Use this when you allocate with `Box::into_raw()`.
 /// The pointer will be freed with `Box::from_raw()` when `cimpl_free()` is called.
-pub fn track_box<T: 'static>(ptr: *mut T) {
+pub fn track_box<T: 'static>(ptr: *mut T) -> *mut T {
     let ptr_val = ptr as usize; // Store as usize to make it Send
     let cleanup = move || unsafe {
         drop(Box::from_raw(ptr_val as *mut T));
     };
     get_registry().track(ptr as usize, TypeId::of::<T>(), Box::new(cleanup));
+    ptr
 }
 
 /// Track an Arc-wrapped pointer
 ///
 /// Use this when you allocate with `Arc::into_raw()`.
 /// The pointer will be freed with `Arc::from_raw()` when `cimpl_free()` is called.
-pub fn track_arc<T: 'static>(ptr: *mut T) {
+pub fn track_arc<T: 'static>(ptr: *mut T) -> *mut T {
     let ptr_val = ptr as usize; // Store as usize to make it Send
     let cleanup = move || unsafe {
         drop(Arc::from_raw(ptr_val as *const T));
     };
     get_registry().track(ptr as usize, TypeId::of::<T>(), Box::new(cleanup));
+    ptr
 }
 
 /// Track an Arc<Mutex<T>>-wrapped pointer
 ///
 /// Use this when you allocate with `Arc::into_raw(Arc::new(Mutex::new(value)))`.
 /// The pointer will be freed with `Arc::from_raw()` when `cimpl_free()` is called.
-pub fn track_arc_mutex<T: 'static>(ptr: *mut Mutex<T>) {
+pub fn track_arc_mutex<T: 'static>(ptr: *mut Mutex<T>) -> *mut Mutex<T> {
     let ptr_val = ptr as usize; // Store as usize to make it Send
     let cleanup = move || unsafe {
         drop(Arc::from_raw(ptr_val as *const Mutex<T>));
     };
     get_registry().track(ptr as usize, TypeId::of::<Mutex<T>>(), Box::new(cleanup));
+    ptr
 }
 
 /// Validate that a pointer is tracked and has the expected type

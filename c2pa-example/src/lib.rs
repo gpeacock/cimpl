@@ -17,7 +17,7 @@ use std::os::raw::c_char;
 
 use cimpl::{
     box_tracked, cimpl_free, cstr_or_return, cstr_or_return_null,
-    deref_or_return_neg, deref_or_return_null, deref_mut_or_return_neg,
+    deref_or_return_int, deref_or_return_null, deref_mut_or_return_int,
     ok_or_return, ok_or_return_null, option_to_c_string, to_c_string, CimplError,
 };
 
