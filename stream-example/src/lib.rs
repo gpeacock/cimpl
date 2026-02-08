@@ -37,8 +37,8 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use cimpl::{
-    box_tracked, deref_mut_or_return_neg, ok_or_return, option_to_c_string, ptr_or_return_int,
-    ptr_or_return_null, Error,
+    box_tracked, deref_mut_or_return_int, ok_or_return, option_to_c_string, ptr_or_return_int,
+    ptr_or_return_null, CimplError,
 };
 
 // ============================================================================
@@ -74,9 +74,28 @@ pub enum CimplStreamError {
     InvalidBuffer = 101,
 }
 
-// Map std::io::Error to cimpl Error
-const ERROR_MAPPER: fn(&std::io::Error) -> (i32, &'static str) = 
-    |_e| (CimplStreamError::IoOperation as i32, "IoError");
+// Internal error wrapper to work around orphan rules
+// We can't implement From<std::io::Error> for CimplError directly
+enum StreamError {
+    Io(std::io::Error),
+}
+
+impl From<std::io::Error> for StreamError {
+    fn from(e: std::io::Error) -> Self {
+        StreamError::Io(e)
+    }
+}
+
+impl From<StreamError> for CimplError {
+    fn from(e: StreamError) -> Self {
+        match e {
+            StreamError::Io(io_err) => CimplError::new(
+                CimplStreamError::IoOperation as i32,
+                format!("IoError: {}", io_err),
+            ),
+        }
+    }
+}
 
 // ============================================================================
 // Stream Context and Callbacks
@@ -267,13 +286,13 @@ pub extern "C" fn cimpl_stream_read(
     buffer: *mut u8,
     len: usize,
 ) -> isize {
-    let s = deref_mut_or_return_neg!(stream, CimplStream);
+    let s = deref_mut_or_return_int!(stream, CimplStream);
     ptr_or_return_int!(buffer);
 
     // Create a safe slice from the raw pointer
     let buf = unsafe { std::slice::from_raw_parts_mut(buffer, len) };
 
-    ok_or_return!(s.read(buf), |bytes_read| bytes_read as isize, -1)
+    ok_or_return!(s.read(buf).map_err(StreamError::from), |bytes_read| bytes_read as isize, -1)
 }
 
 /// Seeks to a position in the stream.
@@ -304,7 +323,7 @@ pub extern "C" fn cimpl_stream_seek(
     offset: i64,
     mode: CimplSeekMode,
 ) -> i64 {
-    let s = deref_mut_or_return_neg!(stream, CimplStream);
+    let s = deref_mut_or_return_int!(stream, CimplStream);
 
     let seek_from = match mode {
         CimplSeekMode::Start => SeekFrom::Start(offset as u64),
@@ -312,7 +331,7 @@ pub extern "C" fn cimpl_stream_seek(
         CimplSeekMode::End => SeekFrom::End(offset),
     };
 
-    ok_or_return!(s.seek(seek_from), |pos| pos as i64, -1)
+    ok_or_return!(s.seek(seek_from).map_err(StreamError::from), |pos| pos as i64, -1)
 }
 
 /// Writes data to the stream.
@@ -340,12 +359,12 @@ pub extern "C" fn cimpl_stream_write(
     data: *const u8,
     len: usize,
 ) -> isize {
-    let s = deref_mut_or_return_neg!(stream, CimplStream);
+    let s = deref_mut_or_return_int!(stream, CimplStream);
     ptr_or_return_int!(data);
 
     let buf = unsafe { std::slice::from_raw_parts(data, len) };
 
-    ok_or_return!(s.write(buf), |bytes_written| bytes_written as isize, -1)
+    ok_or_return!(s.write(buf).map_err(StreamError::from), |bytes_written| bytes_written as isize, -1)
 }
 
 /// Flushes the stream, ensuring all buffered data is written.
@@ -365,9 +384,9 @@ pub extern "C" fn cimpl_stream_write(
 /// ```
 #[no_mangle]
 pub extern "C" fn cimpl_stream_flush(stream: *mut CimplStream) -> i32 {
-    let s = deref_mut_or_return_neg!(stream, CimplStream);
+    let s = deref_mut_or_return_int!(stream, CimplStream);
 
-    ok_or_return!(s.flush(), |_| 0, -1)
+    ok_or_return!(s.flush().map_err(StreamError::from), |_| 0, -1)
 }
 
 // ============================================================================
@@ -479,7 +498,7 @@ impl Write for CimplStream {
 /// ```
 #[no_mangle]
 pub extern "C" fn cimpl_stream_last_error() -> *mut std::os::raw::c_char {
-    option_to_c_string!(Error::last_message())
+    option_to_c_string!(CimplError::last_message())
 }
 
 /// Gets the last error code.
@@ -497,7 +516,7 @@ pub extern "C" fn cimpl_stream_last_error() -> *mut std::os::raw::c_char {
 /// ```
 #[no_mangle]
 pub extern "C" fn cimpl_stream_error_code() -> i32 {
-    Error::last_code() as i32
+    CimplError::last_code() as i32
 }
 
 /// Clears the last error.
@@ -506,7 +525,7 @@ pub extern "C" fn cimpl_stream_error_code() -> i32 {
 /// a series of calls where you want to check for new errors.
 #[no_mangle]
 pub extern "C" fn cimpl_stream_clear_error() {
-    Error::take_last();
+    CimplError::take_last();
 }
 
 // ============================================================================

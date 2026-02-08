@@ -145,7 +145,7 @@ pub extern "C" fn c2pa_context_with_settings(
     settings_json: *const c_char,
 ) -> i32 {
     let json = cstr_or_return!(settings_json, -1);
-    let ctx_ref = deref_mut_or_return_neg!(ctx, C2paContext);
+    let ctx_ref = deref_mut_or_return_int!(ctx, C2paContext);
     
     // Create new Context with settings and replace the inner one
     ok_or_return!(
@@ -171,7 +171,7 @@ pub extern "C" fn c2pa_context_with_settings_toml(
     settings_toml: *const c_char,
 ) -> i32 {
     let toml = cstr_or_return!(settings_toml, -1);
-    let ctx_ref = deref_mut_or_return_neg!(ctx, C2paContext);
+    let ctx_ref = deref_mut_or_return_int!(ctx, C2paContext);
     
     ok_or_return!(
         c2pa::Context::new().with_settings(toml).map_err(C2paInternalError::C2pa),
@@ -307,8 +307,8 @@ pub extern "C" fn c2pa_context_with_settings_obj(
     ctx: *mut C2paContext,
     settings: *mut C2paSettings,
 ) -> i32 {
-    let ctx_ref = deref_mut_or_return_neg!(ctx, C2paContext);
-    let settings_ref = deref_or_return_neg!(settings, C2paSettings);
+    let ctx_ref = deref_mut_or_return_int!(ctx, C2paContext);
+    let settings_ref = deref_or_return_int!(settings, C2paSettings);
     
     ok_or_return!(
         c2pa::Context::new()
