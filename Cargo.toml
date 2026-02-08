@@ -5,10 +5,16 @@ description = "Simple C implementations from Rust - FFI utilities and macros for
 edition = "2021"
 authors = ["Gavin Peacock <gpeacock@adobe.com>"]
 license = "MIT OR Apache-2.0"
-
+readme = "README.md"
+homepage = "https://github.com/gpeacock/cimpl"
 repository = "https://github.com/gpeacock/cimpl"
+documentation = "https://docs.rs/cimpl"
 keywords = ["ffi", "bindings", "c", "utilities", "macros"]
 categories = ["api-bindings", "development-tools::ffi"]
+rust-version = "1.70"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 paste = "1.0"

@@ -1,4 +1,0 @@
-Hello from CimplStream!
-This is line 2.
-And line 3.
-Appended line!

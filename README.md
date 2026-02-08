@@ -138,24 +138,21 @@ cimpl = "0.1"
 cbindgen = "0.27"
 ```
 
-### Examples
+### Example
 
-1. **[example/](./example/)** - **START HERE**: Simple string library showing all core patterns
-   - Purpose-built to demonstrate cimpl features
-   - Clean, documented code
-   - Perfect for learning the basics
+**[examples/](./examples/)** - Comprehensive reference implementation demonstrating all cimpl patterns:
+- String parameters and returns (C ↔ Rust)
+- Byte arrays with safe handling
+- Result<T, E> with custom error enums
+- Option<T> for nullable values
+- Struct lifecycle (create, modify, query, destroy)
+- Error handling and propagation
+- Memory management with tracked allocations
+- Includes Python bindings showing idiomatic error handling
 
-2. **[stream-example/](./stream-example/)** - **Callback Pattern**: Stream I/O with callbacks
-   - Shows how to implement callback-based streams
-   - Bridges C callbacks to Rust's Read/Write/Seek traits
-   - Real-world pattern used in libraries like C2PA
-   - Demonstrates bidirectional function pointer usage
+The example implements a "secret message processor" with various encoding/decoding operations (ROT13, hex, validation, statistics) to exercise all FFI patterns without external dependencies.
 
-3. **[uuid-example/](./uuid-example/)** - **Wrapping External Crates**: UUID generation
-   - Shows how to wrap the `uuid` crate (external dependency)
-   - Demonstrates AI-assisted binding generation for Python, Lua, C++
-   - See [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md) for the AI workflow
-   - See [EXTERNAL_CRATE_EXAMPLE.md](./uuid-example/EXTERNAL_CRATE_EXAMPLE.md) for technical details
+See [examples/README.md](./examples/README.md) for detailed API reference and usage patterns.
 
 ## Real-World Use
 
