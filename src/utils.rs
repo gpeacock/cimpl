@@ -126,20 +126,6 @@ impl Drop for PointerRegistry {
     }
 }
 
-impl Drop for PointerRegistry {
-    fn drop(&mut self) {
-        let tracked = self.tracked.lock().unwrap();
-        if !tracked.is_empty() {
-            eprintln!(
-                "\n⚠️  WARNING: {} pointer(s) were not freed at shutdown!",
-                tracked.len()
-            );
-            eprintln!("This indicates C code did not properly free all allocated pointers.");
-            eprintln!("Each pointer should be freed exactly once with cimpl_free().\n");
-        }
-    }
-}
-
 /// Get the global pointer registry
 pub(crate) fn get_registry() -> &'static PointerRegistry {
     use std::sync::OnceLock;
