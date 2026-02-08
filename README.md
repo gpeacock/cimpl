@@ -140,7 +140,7 @@ cbindgen = "0.27"
 
 ### Example
 
-**[examples/](./examples/)** - Comprehensive reference implementation demonstrating all cimpl patterns:
+**[examples/reference/](./examples/reference/)** - Comprehensive reference implementation demonstrating all cimpl patterns:
 - String parameters and returns (C ↔ Rust)
 - Byte arrays with safe handling
 - Result<T, E> with custom error enums
@@ -152,7 +152,7 @@ cbindgen = "0.27"
 
 The example implements a "secret message processor" with various encoding/decoding operations (ROT13, hex, validation, statistics) to exercise all FFI patterns without external dependencies.
 
-See [examples/README.md](./examples/README.md) for detailed API reference and usage patterns.
+See [examples/reference/README.md](./examples/reference/README.md) for detailed API reference and usage patterns.
 
 ## Real-World Use
 
