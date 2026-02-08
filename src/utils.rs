@@ -50,7 +50,10 @@ impl PointerRegistry {
     /// Track a pointer with its type and cleanup function
     fn track(&self, ptr: usize, type_id: TypeId, cleanup: CleanupFn) {
         if ptr != 0 {
-            self.tracked.lock().unwrap().insert(ptr, (type_id, cleanup));
+            if let Ok(mut tracked) = self.tracked.lock() {
+                tracked.insert(ptr, (type_id, cleanup));
+            }
+            // Silently ignore poisoned mutex - this is a best-effort tracking system
         }
     }
 

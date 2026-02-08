@@ -261,7 +261,7 @@ macro_rules! deref_or_return_null {
 /// Validate pointer and dereference immutably, returning reference
 /// Returns -1 on error
 #[macro_export]
-macro_rules! deref_or_return_neg {
+macro_rules! deref_or_return_int {
     ($ptr:expr, $type:ty) => {{
         $crate::deref_or_return!($ptr, $type, -1)
     }};
@@ -313,7 +313,7 @@ macro_rules! deref_mut_or_return_null {
 /// Validate pointer and dereference mutably, returning reference
 /// Returns -1 on error
 #[macro_export]
-macro_rules! deref_mut_or_return_neg {
+macro_rules! deref_mut_or_return_int {
     ($ptr:expr, $type:ty) => {{
         $crate::deref_mut_or_return!($ptr, $type, -1)
     }};
@@ -326,8 +326,7 @@ macro_rules! box_tracked {
     ($expr:expr) => {{
         let obj = $expr;
         let ptr = Box::into_raw(Box::new(obj));
-        $crate::track_box(ptr);
-        ptr
+        $crate::track_box(ptr)
     }};
 }
 
@@ -338,8 +337,7 @@ macro_rules! arc_tracked {
     ($expr:expr) => {{
         let obj = $expr;
         let ptr = Arc::into_raw(Arc::new(obj)) as *mut _;
-        $crate::track_arc(ptr);
-        ptr
+        $crate::track_arc(ptr)
     }};
 }
 
@@ -758,4 +756,37 @@ macro_rules! bytes_or_return_int {
     ($ptr:expr, $len:expr, $name:expr) => {{
         $crate::bytes_or_return!($ptr, $len, $name, -1)
     }};
+}
+
+/// Free a pointer that was allocated by cimpl.
+///
+/// This is a convenience macro wrapper around `cimpl_free` (see [`crate::cimpl_free`]).
+///
+/// # Returns
+/// - `0` on success
+/// - `-1` on error (see [`crate::cimpl_free`] for details)
+///
+/// # Error Handling
+///
+/// On error, the error is set via [`crate::CimplError::set_last`] and can be retrieved
+/// using error functions. In test mode, errors are also printed to stderr.
+///
+/// **Best Practice**: Check the return value in production code:
+/// ```rust,ignore
+/// if cimpl_free!(ptr) != 0 {
+///     // Handle error
+/// }
+/// ```
+///
+/// # Examples
+/// ```rust,ignore
+/// let ptr = box_tracked!(MyStruct::new());
+/// // ... use ptr ...
+/// cimpl_free!(ptr); // Returns 0 on success, -1 on error
+/// ```
+#[macro_export]
+macro_rules! cimpl_free {
+    ($ptr:expr) => {
+        $crate::cimpl_free($ptr as *mut _)
+    };
 }
