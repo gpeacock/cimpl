@@ -57,14 +57,17 @@ impl PointerRegistry {
     /// Validate that a pointer is tracked and has the expected type
     pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), CimplError> {
         if ptr == 0 {
-            return Err(CimplError::null_parameter("pointer".to_string()));
+            return Err(CimplError::null_parameter("pointer"));
         }
 
-        let tracked = self.tracked.lock().unwrap();
+        let tracked = self
+            .tracked
+            .lock()
+            .map_err(|_| CimplError::mutex_poisoned())?;
         match tracked.get(&ptr) {
             Some((actual_type, _)) if *actual_type == expected_type => Ok(()),
-            Some(_) => Err(CimplError::wrong_handle_type(ptr as u64)),
-            None => Err(CimplError::invalid_handle(ptr as u64)),
+            Some(_) => Err(CimplError::wrong_pointer_type(ptr as u64)),
+            None => Err(CimplError::untracked_pointer(ptr as u64)),
         }
     }
 
@@ -75,15 +78,48 @@ impl PointerRegistry {
         }
 
         let mut cleanup = {
-            let mut tracked = self.tracked.lock().unwrap();
+            let mut tracked = self
+                .tracked
+                .lock()
+                .map_err(|_| CimplError::mutex_poisoned())?;
             match tracked.remove(&ptr) {
                 Some((_, cleanup)) => cleanup,
-                None => return Err(CimplError::invalid_handle(ptr as u64)),
+                None => return Err(CimplError::untracked_pointer(ptr as u64)),
             }
         }; // Release lock before cleanup
 
         cleanup(); // Run the cleanup function
         Ok(())
+    }
+}
+
+/// Automatic leak detection at shutdown.
+///
+/// When the pointer registry is dropped (at program shutdown), it checks for any
+/// tracked pointers that were never freed. This helps identify memory leaks caused
+/// by missing `cimpl_free()` calls in C code.
+///
+/// # Example Output
+///
+/// ```text
+/// ⚠️  WARNING: 3 pointer(s) were not freed at shutdown!
+/// This indicates C code did not properly free all allocated pointers.
+/// Each pointer should be freed exactly once with cimpl_free().
+/// ```
+///
+/// This detection runs in **all builds** (debug, release, and test) to help catch
+/// memory management bugs during development and integration testing.
+impl Drop for PointerRegistry {
+    fn drop(&mut self) {
+        let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner());
+        if !tracked.is_empty() {
+            eprintln!(
+                "\n⚠️  WARNING: {} pointer(s) were not freed at shutdown!",
+                tracked.len()
+            );
+            eprintln!("This indicates C code did not properly free all allocated pointers.");
+            eprintln!("Each pointer should be freed exactly once with cimpl_free().\n");
+        }
     }
 }
 
@@ -160,28 +196,68 @@ pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), CimplError> {
 /// (Box, Arc, etc.) or the underlying Rust type.
 ///
 /// # Returns
-/// - 0 on success
-/// - -1 if pointer was not tracked (invalid or double-free)
+/// - `0` on success
+/// - `-1` on error (pointer not tracked, double-free, or invalid pointer)
+///
+/// When an error occurs, the error is set via [`crate::CimplError::set_last`] and can be
+/// retrieved using the error handling functions.
+///
+/// # Test Mode Error Reporting
+///
+/// In test builds (`#[cfg(test)]`), this function will print detailed error information
+/// to stderr when it fails. This helps catch memory management bugs during testing:
+///
+/// ```text
+/// ⚠️  ERROR: cimpl_free failed for pointer 0x12345678: pointer not tracked
+/// This usually means:
+/// 1. The pointer was not allocated with box_tracked!/track_box
+/// 2. The pointer was already freed (double-free)
+/// 3. The pointer is invalid/corrupted
+/// ```
+///
+/// **Important**: C code should check the return value to detect errors. Test failures
+/// may indicate untracked allocations or incorrect pointer management.
 ///
 /// # Safety
-/// Safe to call with NULL (returns 0).
-/// Safe to call with any tracked pointer.
-/// DO NOT call on untracked pointers.
+/// - Safe to call with NULL (returns 0, no error set)
+/// - Safe to call with any tracked pointer
+/// - **DO NOT** call on untracked pointers - will return -1 and set error
+/// - **DO NOT** call twice on the same pointer - will return -1 and set error
 ///
 /// # Example (C)
 /// ```c
 /// MyString* str = mystring_create("hello");
 /// char* value = mystring_get_value(str);
 ///
-/// cimpl_free(value);  // Free the returned string
-/// cimpl_free(str);    // Free the MyString - same function!
+/// // Always check return values in production code
+/// if (cimpl_free(value) != 0) {
+///     // Handle error - check error functions
+/// }
+/// if (cimpl_free(str) != 0) {
+///     // Handle error
+/// }
 /// ```
 #[no_mangle]
 pub extern "C" fn cimpl_free(ptr: *mut std::ffi::c_void) -> i32 {
     match get_registry().free(ptr as usize) {
         Ok(()) => 0,
-        Err(e) => {
-            e.set_last();
+        Err(error) => {
+            // In test builds, print error to stderr to make failures visible
+            #[cfg(test)]
+            {
+                if ptr as usize != 0 {
+                    eprintln!(
+                        "\n⚠️  ERROR: cimpl_free failed for pointer 0x{:x}: {}\n\
+                        This usually means:\n\
+                        1. The pointer was not allocated with box_tracked!/track_box\n\
+                        2. The pointer was already freed (double-free)\n\
+                        3. The pointer is invalid/corrupted\n",
+                        ptr as usize, error
+                    );
+                }
+            }
+
+            error.set_last();
             -1
         }
     }
@@ -240,19 +316,34 @@ pub unsafe fn is_safe_buffer_size(size: usize, ptr: *const c_uchar) -> bool {
 /// - The memory remains valid for the lifetime of the returned slice
 /// - The memory is not mutated while the slice exists
 /// - `len` does not exceed the actual size of the allocated memory
+/// Creates a safe slice from raw parts with bounds validation
+///
+/// # Arguments
+/// * `ptr` - Pointer to the data
+/// * `len` - Length of the data
+/// * `param_name` - Name of the parameter for error reporting
+///
+/// # Returns
+/// * `Ok(slice)` if the slice is safe to create
+/// * `Err(Error)` if bounds validation fails
+///
+/// # Safety
+/// Caller must ensure that:
+/// - `ptr` points to valid, initialized memory for at least `len` bytes
+/// - The memory remains valid for the lifetime of the returned slice
+/// - The memory is not mutated while the slice exists
+/// - `len` does not exceed the actual size of the allocated memory
 pub unsafe fn safe_slice_from_raw_parts(
     ptr: *const c_uchar,
     len: usize,
     param_name: &str,
 ) -> Result<&[u8], CimplError> {
     if ptr.is_null() {
-        return Err(CimplError::null_parameter(param_name.to_string()));
+        return Err(CimplError::null_parameter(param_name));
     }
 
     if !is_safe_buffer_size(len, ptr) {
-        return Err(CimplError::other(format!(
-            "Buffer size {len} is invalid for parameter '{param_name}'",
-        )));
+        return Err(CimplError::invalid_buffer_size(len, param_name));
     }
 
     Ok(std::slice::from_raw_parts(ptr, len))

@@ -24,22 +24,76 @@
 //! All macros that perform early returns include `_or_return_` in their names
 //! to make control flow explicit and obvious.
 //!
+//! # 🔍 Test Mode Debugging & Leak Detection
+//!
+//! The FFI layer includes comprehensive memory tracking and debugging features to catch
+//! memory management bugs during development and testing.
+//!
+//! ## Automatic Leak Detection (All Builds)
+//!
+//! The pointer registry automatically detects memory leaks at program shutdown. When the
+//! registry is dropped, it checks for any pointers that were never freed:
+//!
+//! ```text
+//! ⚠️  WARNING: 3 pointer(s) were not freed at shutdown!
+//! This indicates C code did not properly free all allocated pointers.
+//! Each pointer should be freed exactly once with cimpl_free().
+//! ```
+//!
+//! **This runs in ALL builds** (debug, release, test) and helps identify:
+//! - Forgotten `cimpl_free()` calls in C code
+//! - Pointers returned to C that were never cleaned up
+//! - Resource leaks that could accumulate over time
+//!
+//! ## Test-Mode Error Reporting
+//!
+//! In test builds (`#[cfg(test)]`), additional error reporting is enabled for immediate feedback:
+//!
+//! ### `cimpl_free` Error Output
+//!
+//! When `cimpl_free` fails in test mode, it prints detailed diagnostic information to stderr:
+//!
+//! ```text
+//! ⚠️  ERROR: cimpl_free failed for pointer 0x12345678: pointer not tracked
+//! This usually means:
+//! 1. The pointer was not allocated with box_tracked!/track_box
+//! 2. The pointer was already freed (double-free)
+//! 3. The pointer is invalid/corrupted
+//! ```
+//!
+//! ## Why These Errors Matter
+//!
+//! Memory management errors caught by these mechanisms indicate serious bugs:
+//! - **Untracked allocations**: Using `Box::into_raw` without `track_box` means `cimpl_free`
+//!   cannot safely deallocate the memory, causing memory leaks
+//! - **Double-free**: Calling `cimpl_free` twice on the same pointer is undefined behavior
+//! - **Invalid pointers**: Corrupted or uninitialized pointers will be caught
+//! - **Memory leaks**: Pointers never freed waste resources and accumulate over program lifetime
+//!
+//! ## Production Behavior
+//!
+//! **In production builds** (without `#[cfg(test)]`):
+//! - Leak detection at shutdown still runs (helps catch bugs in integration testing)
+//! - `cimpl_free` errors are still returned (as `-1`) and set via [`crate::CimplError::set_last`]
+//! - No stderr output for individual `cimpl_free` failures (quieter for library usage)
+//! - C code should always check return values and handle errors appropriately
+//!
 //! # ⚠️  CRITICAL: Anti-Pattern Detection Guide ⚠️
 //!
 //! **Before writing ANY FFI code, scan for these patterns and replace:**
 //!
 //! ```text
 //! ❌ if ptr.is_null() { Error::...; return -1; }
-//! ✅ deref_mut_or_return_neg!(ptr, Type)
+//! ✅ deref_mut_or_return_int!(ptr, Type)
 //!
 //! ❌ match result { Ok(v) => ..., Err(e) => { Error::...; return null } }
 //! ✅ ok_or_return_null!(result.map_err(InternalError::from))
 //!
 //! ❌ unsafe { if ptr.is_null() { ... } &mut *ptr }
-//! ✅ deref_mut_or_return_neg!(ptr, Type)
+//! ✅ deref_mut_or_return_int!(ptr, Type)
 //!
 //! ❌ unsafe { &*ptr } or unsafe { &mut *ptr }
-//! ✅ deref_or_return!(ptr, Type, -1) or deref_mut_or_return!(ptr, Type, -1)
+//! ✅ deref_or_return_int!(ptr, Type) or deref_mut_or_return_int!(ptr, Type)
 //!
 //! ❌ Manual string length checks and conversion
 //! ✅ cstr_or_return!(ptr, -1)
@@ -58,7 +112,8 @@
 //! ## Input Validation (from C)
 //! - **Pointer from C**: `deref_or_return_null!(ptr, Type)` → validates & dereferences to `&Type`
 //! - **String from C**: `cstr_or_return_null!(c_str)` → converts C string to Rust `String`
-//! - **Check not null**: `ptr_or_return_null!(ptr)` → just null check, no deref
+//! - **Byte array from C**: `bytes_or_return_null!(ptr, len, "name")` → validates & converts to `&[u8]`
+//! - **Check not null**: `ptr_or_return_null!(ptr)` → just null check, no deref (for output params)
 //!
 //! ## Output Creation (to C)
 //! - **Box a value**: `box_tracked!(value)` → heap allocate and return pointer
@@ -68,8 +123,6 @@
 //! ## Error Handling
 //! - **External crate Result**: `ok_or_return_null!(result)` → uses From trait automatically
 //! - **cimpl::Error Result**: `ok_or_return_null!(result)` → used directly
-//! - **Option<T> (validation)**: `some_or_return_other_null!(option, "message")` → most common case
-//! - **Option<T> (custom error)**: `some_or_return_null!(option, Error::other(msg))` → specific error
 //!
 //! ## Naming Pattern
 //! All macros follow: `action_or_return_<what>`
@@ -84,9 +137,9 @@
 //! |------------------------|-----------------|-----------------------------------|---------|
 //! | `*mut T` (from C)      | -               | `deref_or_return_null!(ptr, T)`   | Getting object from C |
 //! | `*const c_char` (from C)| -              | `cstr_or_return_null!(s)`         | Getting string from C |
+//! | `*const c_uchar` + len | -               | `bytes_or_return_null!(p, len, "name")` | Getting byte array from C |
 //! | `Result<T, ExtErr>`    | pointer/int     | `ok_or_return_null!(r)`           | External crate errors (From trait) |
 //! | `Result<T, cimpl::Err>`| pointer/int     | `ok_or_return_null!(r)`           | Internal validation |
-//! | `Option<T>` validate   | pointer/int     | `some_or_return_other_null!(o, msg)` | Validation failures |
 //! | `Option<T>` custom     | pointer/int     | `some_or_return_null!(o, err)`    | Specific error needed |
 //! | `T` (owned)            | `*mut T`        | `box_tracked!(value)`             | Returning new object |
 //! | `String`               | `*mut c_char`   | `to_c_string(s)`                  | Returning string |
@@ -360,14 +413,14 @@ macro_rules! cstr_or_return_with_limit {
 
 /// Handle Result or early-return with error value
 ///
-/// This macro handles Result types using standard Rust From/Into conversion:
-/// - External errors are automatically converted via From trait
-/// - cimpl::Error is used directly
+/// This macro handles Result types by converting errors to strings:
+/// - Any error implementing Display is converted via format!("{}", e)
+/// - Stored as CimplError::other with the error message
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // External error - automatically converted via From<uuid::Error>
+/// // External error - automatically converted to string
 /// let uuid = ok_or_return!(Uuid::from_str(&s), |v| v, std::ptr::null_mut());
 ///
 /// // With cimpl::Error
@@ -379,7 +432,7 @@ macro_rules! ok_or_return {
         match $result {
             Ok(value) => $transform(value),
             Err(e) => {
-                $crate::CimplError::from(e).set_last();
+                $crate::CimplError::other(format!("{}", e)).set_last();
                 return $err_val;
             }
         }
@@ -392,7 +445,7 @@ macro_rules! ok_or_return {
 
 /// Handle Result, early-return with -1 (negative) on error
 ///
-/// Uses From trait for automatic error conversion.
+/// Converts any error to string via Display trait.
 #[macro_export]
 macro_rules! ok_or_return_int {
     ($result:expr) => {
@@ -402,15 +455,15 @@ macro_rules! ok_or_return_int {
 
 /// Handle Result, early-return with null on error
 ///
-/// Uses From trait for automatic error conversion.
+/// Converts any error to string via Display trait.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // Automatically converts external error via From trait
+/// // Automatically converts external error to string
 /// let uuid = ok_or_return_null!(Uuid::from_str(&s));
 ///
-/// // Works with cimpl::Error too
+/// // Works with any Result type
 /// let data = ok_or_return_null!(validate_something());
 /// ```
 #[macro_export]
@@ -422,7 +475,7 @@ macro_rules! ok_or_return_null {
 
 /// Handle Result, early-return with 0 on error
 ///
-/// Uses From trait for automatic error conversion.
+/// Converts any error to string via Display trait.
 #[macro_export]
 macro_rules! ok_or_return_zero {
     ($result:expr) => {
@@ -432,7 +485,7 @@ macro_rules! ok_or_return_zero {
 
 /// Handle Result, early-return with false on error
 ///
-/// Uses From trait for automatic error conversion.
+/// Converts any error to string via Display trait.
 #[macro_export]
 macro_rules! ok_or_return_false {
     ($result:expr) => {
@@ -652,4 +705,57 @@ macro_rules! option_to_c_string {
             None => std::ptr::null_mut(),
         }
     };
+}
+
+// ============================================================================
+// Byte Array Validation Macros
+// ============================================================================
+
+/// Validate and convert raw C byte array to safe slice, returning early on error.
+///
+/// This macro combines null pointer checking with bounds validation using
+/// `safe_slice_from_raw_parts`. It's specifically for byte arrays (`*const c_uchar`)
+/// passed from C with an associated length.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// #[no_mangle]
+/// pub unsafe extern "C" fn process_data(
+///     data: *const c_uchar,
+///     len: usize
+/// ) -> *mut Result {
+///     let bytes = bytes_or_return_null!(data, len, "data");
+///     // bytes is now a safe &[u8]
+///     let result = process(bytes);
+///     box_tracked!(result)
+/// }
+/// ```
+#[macro_export]
+macro_rules! bytes_or_return {
+    ($ptr:expr, $len:expr, $name:expr, $err_val:expr) => {{
+        match unsafe { $crate::safe_slice_from_raw_parts($ptr, $len, $name) } {
+            Ok(slice) => slice,
+            Err(err) => {
+                err.set_last();
+                return $err_val;
+            }
+        }
+    }};
+}
+
+/// Validate and convert raw C byte array to safe slice, return NULL on error.
+#[macro_export]
+macro_rules! bytes_or_return_null {
+    ($ptr:expr, $len:expr, $name:expr) => {{
+        $crate::bytes_or_return!($ptr, $len, $name, std::ptr::null_mut())
+    }};
+}
+
+/// Validate and convert raw C byte array to safe slice, return -1 on error.
+#[macro_export]
+macro_rules! bytes_or_return_int {
+    ($ptr:expr, $len:expr, $name:expr) => {{
+        $crate::bytes_or_return!($ptr, $len, $name, -1)
+    }};
 }
