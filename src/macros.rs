@@ -242,7 +242,7 @@ macro_rules! deref_or_return {
         match $crate::validate_pointer::<$type>($ptr) {
             Ok(()) => unsafe { &*($ptr as *const $type) },
             Err(e) => {
-                e.set_last();
+                $crate::CimplError::from(e).set_last();
                 return $err_val;
             }
         }
@@ -294,7 +294,7 @@ macro_rules! deref_mut_or_return {
         match $crate::validate_pointer::<$type>($ptr) {
             Ok(()) => unsafe { &mut *($ptr as *mut $type) },
             Err(e) => {
-                e.set_last();
+                $crate::CimplError::from(e).set_last();
                 return $err_val;
             }
         }
@@ -341,8 +341,8 @@ macro_rules! arc_tracked {
     }};
 }
 
-/// Maximum length for C strings when using bounded conversion (64KB)
-pub const MAX_CSTRING_LEN: usize = 65536;
+/// Maximum length for C strings when using bounded conversion (1MB)
+pub const MAX_CSTRING_LEN: usize = 1048576;
 
 /// Check pointer not null or early-return with error value
 #[macro_export]
@@ -357,7 +357,7 @@ macro_rules! ptr_or_return {
 
 /// Convert C string with bounded length check or early-return with error value
 /// Uses a safe bounded approach to prevent reading unbounded memory.
-/// Maximum string length is MAX_CSTRING_LEN (64KB).
+/// Maximum string length is MAX_CSTRING_LEN (1MB).
 #[macro_export]
 macro_rules! cstr_or_return {
     ($ptr:expr, $err_val:expr) => {{
@@ -411,14 +411,14 @@ macro_rules! cstr_or_return_with_limit {
 
 /// Handle Result or early-return with error value
 ///
-/// This macro handles Result types by converting errors to strings:
-/// - Any error implementing Display is converted via format!("{}", e)
-/// - Stored as CimplError::other with the error message
+/// This macro handles Result types using standard Rust From/Into conversion:
+/// - External errors are automatically converted via From trait
+/// - cimpl::Error is used directly
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // External error - automatically converted to string
+/// // External error - automatically converted via From<uuid::Error>
 /// let uuid = ok_or_return!(Uuid::from_str(&s), |v| v, std::ptr::null_mut());
 ///
 /// // With cimpl::Error
@@ -430,7 +430,7 @@ macro_rules! ok_or_return {
         match $result {
             Ok(value) => $transform(value),
             Err(e) => {
-                $crate::CimplError::other(format!("{}", e)).set_last();
+                $crate::CimplError::from(e).set_last();
                 return $err_val;
             }
         }
@@ -443,7 +443,7 @@ macro_rules! ok_or_return {
 
 /// Handle Result, early-return with -1 (negative) on error
 ///
-/// Converts any error to string via Display trait.
+/// Uses From trait for automatic error conversion.
 #[macro_export]
 macro_rules! ok_or_return_int {
     ($result:expr) => {
@@ -453,15 +453,15 @@ macro_rules! ok_or_return_int {
 
 /// Handle Result, early-return with null on error
 ///
-/// Converts any error to string via Display trait.
+/// Uses From trait for automatic error conversion.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// // Automatically converts external error to string
+/// // Automatically converts external error via From trait
 /// let uuid = ok_or_return_null!(Uuid::from_str(&s));
 ///
-/// // Works with any Result type
+/// // Works with cimpl::Error too
 /// let data = ok_or_return_null!(validate_something());
 /// ```
 #[macro_export]
@@ -473,7 +473,7 @@ macro_rules! ok_or_return_null {
 
 /// Handle Result, early-return with 0 on error
 ///
-/// Converts any error to string via Display trait.
+/// Uses From trait for automatic error conversion.
 #[macro_export]
 macro_rules! ok_or_return_zero {
     ($result:expr) => {
@@ -483,7 +483,7 @@ macro_rules! ok_or_return_zero {
 
 /// Handle Result, early-return with false on error
 ///
-/// Converts any error to string via Display trait.
+/// Uses From trait for automatic error conversion.
 #[macro_export]
 macro_rules! ok_or_return_false {
     ($result:expr) => {
