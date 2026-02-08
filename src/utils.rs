@@ -458,4 +458,149 @@ mod tests {
         assert!(c_string.is_null());
         // No need to free since it's null
     }
+
+    #[test]
+    fn test_to_c_string_empty() {
+        let empty = "".to_string();
+        let c_string = to_c_string(empty);
+        assert!(!c_string.is_null());
+        cimpl_free(c_string as *mut std::ffi::c_void);
+    }
+
+    #[test]
+    fn test_to_c_bytes_empty() {
+        let empty_bytes: Vec<u8> = vec![];
+        let ptr = to_c_bytes(empty_bytes);
+        assert!(!ptr.is_null());
+        cimpl_free(ptr as *mut std::ffi::c_void);
+    }
+
+    #[test]
+    fn test_box_tracked() {
+        struct TestStruct {
+            value: i32,
+        }
+        
+        let test = TestStruct { value: 42 };
+        let ptr = track_box(Box::into_raw(Box::new(test)));
+        assert!(!ptr.is_null());
+        
+        // Verify we can read it back
+        unsafe {
+            let test_ref = &*ptr;
+            assert_eq!(test_ref.value, 42);
+        }
+        
+        // Clean up
+        cimpl_free(ptr as *mut std::ffi::c_void);
+    }
+
+    #[test]
+    fn test_track_box_returns_pointer() {
+        let value = Box::new(123i32);
+        let ptr = track_box(Box::into_raw(value));
+        assert!(!ptr.is_null());
+        
+        unsafe {
+            assert_eq!(*ptr, 123);
+        }
+        
+        cimpl_free(ptr as *mut std::ffi::c_void);
+    }
+
+    #[test]
+    fn test_validate_pointer_with_valid_pointer() {
+        let value = Box::new(456i32);
+        let ptr = track_box(Box::into_raw(value));
+        
+        let result = validate_pointer::<i32>(ptr);
+        assert!(result.is_ok());
+        
+        cimpl_free(ptr as *mut std::ffi::c_void);
+    }
+
+    #[test]
+    fn test_validate_pointer_with_null() {
+        let result = validate_pointer::<i32>(std::ptr::null_mut());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), 1); // null_parameter
+    }
+
+    #[test]
+    fn test_validate_pointer_with_untracked() {
+        let value = Box::new(789i32);
+        let ptr = Box::into_raw(value); // Not tracked!
+        
+        let result = validate_pointer::<i32>(ptr);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), 3); // untracked_pointer
+        
+        // Clean up untracked pointer
+        unsafe { let _ = Box::from_raw(ptr); }
+    }
+
+    #[test]
+    fn test_safe_slice_from_raw_parts_valid() {
+        let data = vec![1u8, 2, 3, 4, 5];
+        let ptr = data.as_ptr();
+        let len = data.len();
+        
+        let result = unsafe { safe_slice_from_raw_parts(ptr, len, "test_data") };
+        assert!(result.is_ok());
+        let slice = result.unwrap();
+        assert_eq!(slice, &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_safe_slice_from_raw_parts_null() {
+        let result = unsafe { safe_slice_from_raw_parts(std::ptr::null(), 5, "test_param") };
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), 1); // null_parameter
+    }
+
+    #[test]
+    fn test_safe_slice_from_raw_parts_invalid_size() {
+        let data = vec![1u8, 2, 3];
+        let ptr = data.as_ptr();
+        
+        // Request usize::MAX which should trigger overflow
+        let result = unsafe { safe_slice_from_raw_parts(ptr, usize::MAX, "overflow_test") };
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), 7); // invalid_buffer_size
+    }
+
+    #[test]
+    fn test_arc_tracked() {
+        use std::sync::Arc;
+        
+        let value = Arc::new(100i32);
+        let ptr = track_arc(Arc::into_raw(value) as *mut i32);
+        assert!(!ptr.is_null());
+        
+        unsafe {
+            assert_eq!(*ptr, 100);
+        }
+        
+        cimpl_free(ptr as *mut std::ffi::c_void);
+    }
+
+    #[test]
+    fn test_arc_mutex_tracked() {
+        use std::sync::{Arc, Mutex};
+        
+        let value = Arc::new(Mutex::new(200i32));
+        let ptr = track_arc_mutex(Arc::into_raw(value) as *mut Mutex<i32>);
+        assert!(!ptr.is_null());
+        
+        unsafe {
+            let guard = (*ptr).lock().unwrap();
+            assert_eq!(*guard, 200);
+        }
+        
+        cimpl_free(ptr as *mut std::ffi::c_void);
+    }
 }

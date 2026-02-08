@@ -159,3 +159,162 @@ impl std::fmt::Display for CimplError {
 }
 
 impl std::error::Error for CimplError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_creation() {
+        let err = CimplError::new(100, "test error");
+        assert_eq!(err.code(), 100);
+        assert_eq!(err.message(), "test error");
+    }
+
+    #[test]
+    fn test_null_parameter_error() {
+        let err = CimplError::null_parameter("input_ptr");
+        assert_eq!(err.code(), 1);
+        assert!(err.message().contains("NullParameter"));
+        assert!(err.message().contains("input_ptr"));
+    }
+
+    #[test]
+    fn test_string_too_long_error() {
+        let err = CimplError::string_too_long("name");
+        assert_eq!(err.code(), 2);
+        assert!(err.message().contains("StringTooLong"));
+        assert!(err.message().contains("name"));
+    }
+
+    #[test]
+    fn test_untracked_pointer_error() {
+        let err = CimplError::untracked_pointer(0xdeadbeef);
+        assert_eq!(err.code(), 3);
+        assert!(err.message().contains("UntrackedPointer"));
+        assert!(err.message().contains("0xdeadbeef"));
+    }
+
+    #[test]
+    fn test_wrong_pointer_type_error() {
+        let err = CimplError::wrong_pointer_type(0x12345678);
+        assert_eq!(err.code(), 4);
+        assert!(err.message().contains("WrongPointerType"));
+        assert!(err.message().contains("0x12345678"));
+    }
+
+    #[test]
+    fn test_mutex_poisoned_error() {
+        let err = CimplError::mutex_poisoned();
+        assert_eq!(err.code(), 6);
+        assert!(err.message().contains("MutexPoisoned"));
+    }
+
+    #[test]
+    fn test_invalid_buffer_size_error() {
+        let err = CimplError::invalid_buffer_size(1000, "data");
+        assert_eq!(err.code(), 7);
+        assert!(err.message().contains("InvalidBufferSize"));
+        assert!(err.message().contains("1000"));
+        assert!(err.message().contains("data"));
+    }
+
+    #[test]
+    fn test_other_error() {
+        let err = CimplError::other("custom message");
+        assert_eq!(err.code(), 5);
+        assert!(err.message().contains("Other"));
+        assert!(err.message().contains("custom message"));
+    }
+
+    #[test]
+    fn test_last_error_storage() {
+        // Set an error
+        let err = CimplError::new(42, "test error");
+        err.set_last();
+        
+        // Retrieve it
+        assert_eq!(CimplError::last_code(), 42);
+        let msg = CimplError::last_message();
+        assert_eq!(msg, Some("test error".to_string()));
+    }
+
+    #[test]
+    fn test_last_error_none() {
+        // Clear any existing error
+        CimplError::take_last();
+        
+        assert_eq!(CimplError::last_code(), 0);
+        assert_eq!(CimplError::last_message(), None);
+    }
+
+    #[test]
+    fn test_take_last_clears_error() {
+        // Set an error
+        CimplError::new(99, "temporary").set_last();
+        assert_eq!(CimplError::last_code(), 99);
+        
+        // Take it (should clear)
+        let err = CimplError::take_last();
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code(), 99);
+        
+        // Verify it's cleared
+        assert_eq!(CimplError::last_code(), 0);
+        assert_eq!(CimplError::last_message(), None);
+    }
+
+    #[test]
+    fn test_display_trait() {
+        let err = CimplError::new(123, "display test");
+        let displayed = format!("{}", err);
+        assert_eq!(displayed, "display test");
+    }
+
+    #[test]
+    fn test_debug_trait() {
+        let err = CimplError::new(456, "debug test");
+        let debugged = format!("{:?}", err);
+        assert!(debugged.contains("456"));
+        assert!(debugged.contains("debug test"));
+    }
+
+    #[test]
+    fn test_error_trait() {
+        let err = CimplError::new(789, "error trait test");
+        // Verify it implements Error trait
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[test]
+    fn test_thread_local_isolation() {
+        use std::thread;
+        
+        // Set error in main thread
+        CimplError::new(1, "main thread").set_last();
+        
+        // Spawn a new thread and verify it has no error
+        let handle = thread::spawn(|| {
+            assert_eq!(CimplError::last_code(), 0);
+            CimplError::new(2, "spawned thread").set_last();
+            assert_eq!(CimplError::last_code(), 2);
+        });
+        
+        handle.join().unwrap();
+        
+        // Main thread should still have its error
+        assert_eq!(CimplError::last_code(), 1);
+    }
+
+    #[test]
+    fn test_error_overwrite() {
+        // Set first error
+        CimplError::new(100, "first").set_last();
+        assert_eq!(CimplError::last_code(), 100);
+        
+        // Set second error (should overwrite)
+        CimplError::new(200, "second").set_last();
+        assert_eq!(CimplError::last_code(), 200);
+        assert_eq!(CimplError::last_message(), Some("second".to_string()));
+    }
+}
