@@ -25,6 +25,8 @@ example/example
 *.lib
 
 node_modules/
+package-lock.json
+package.json
 
 # Backup files
 *.bak
