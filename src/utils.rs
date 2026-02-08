@@ -25,7 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::error::{CimplError, Error};
+use crate::cimpl_error::CimplError;
 
 // ============================================================================
 // Pointer Registry - Tracks pointers with their cleanup functions
@@ -55,21 +55,21 @@ impl PointerRegistry {
     }
 
     /// Validate that a pointer is tracked and has the expected type
-    pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), Error> {
+    pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), CimplError> {
         if ptr == 0 {
-            return Err(Error::from(CimplError::NullParameter("pointer".to_string())));
+            return Err(CimplError::null_parameter("pointer".to_string()));
         }
 
         let tracked = self.tracked.lock().unwrap();
         match tracked.get(&ptr) {
             Some((actual_type, _)) if *actual_type == expected_type => Ok(()),
-            Some(_) => Err(Error::from(CimplError::WrongHandleType(ptr as u64))),
-            None => Err(Error::from(CimplError::InvalidHandle(ptr as u64))),
+            Some(_) => Err(CimplError::wrong_handle_type(ptr as u64)),
+            None => Err(CimplError::invalid_handle(ptr as u64)),
         }
     }
 
     /// Free a tracked pointer by calling its cleanup function
-    pub fn free(&self, ptr: usize) -> Result<(), Error> {
+    pub fn free(&self, ptr: usize) -> Result<(), CimplError> {
         if ptr == 0 {
             return Ok(()); // NULL is always safe
         }
@@ -78,7 +78,7 @@ impl PointerRegistry {
             let mut tracked = self.tracked.lock().unwrap();
             match tracked.remove(&ptr) {
                 Some((_, cleanup)) => cleanup,
-                None => return Err(Error::from(CimplError::InvalidHandle(ptr as u64))),
+                None => return Err(CimplError::invalid_handle(ptr as u64)),
             }
         }; // Release lock before cleanup
 
@@ -149,7 +149,7 @@ pub fn track_arc_mutex<T: 'static>(ptr: *mut Mutex<T>) {
 }
 
 /// Validate that a pointer is tracked and has the expected type
-pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
+pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), CimplError> {
     get_registry().validate(ptr as usize, TypeId::of::<T>())
 }
 
@@ -244,15 +244,15 @@ pub unsafe fn safe_slice_from_raw_parts(
     ptr: *const c_uchar,
     len: usize,
     param_name: &str,
-) -> Result<&[u8], Error> {
+) -> Result<&[u8], CimplError> {
     if ptr.is_null() {
-        return Err(Error::from(CimplError::NullParameter(param_name.to_string())));
+        return Err(CimplError::null_parameter(param_name.to_string()));
     }
 
     if !is_safe_buffer_size(len, ptr) {
-        return Err(Error::from(CimplError::Other(format!(
+        return Err(CimplError::other(format!(
             "Buffer size {len} is invalid for parameter '{param_name}'",
-        ))));
+        )));
     }
 
     Ok(std::slice::from_raw_parts(ptr, len))

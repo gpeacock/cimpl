@@ -30,9 +30,9 @@ use std::os::raw::c_char;
 
 use cimpl::{
     box_tracked, cimpl_free, cstr_or_return_null,
-    deref_or_return_null, error::CimplError, ok_or_return_false, ok_or_return_null, 
+    deref_or_return_null, ok_or_return_false, ok_or_return_null, 
     option_to_c_string, to_c_bytes, to_c_string, 
-    Error,
+    CimplError,
 };
 
 // ============================================================================
@@ -66,7 +66,7 @@ pub enum ProcessError {
     TooLong(usize, usize),  // got, max
 }
 
-impl From<ProcessError> for Error {
+impl From<ProcessError> for CimplError {
     fn from(e: ProcessError) -> Self {
         let (code, name, detail) = match e {
             ProcessError::InvalidHex(ref s) => (SecretError::InvalidHex, "InvalidHex", s.clone()),
@@ -82,7 +82,7 @@ impl From<ProcessError> for Error {
                 format!("got {}, max {}", got, max)
             ),
         };
-        Error::new(code as i32, format!("{}: {}", name, detail))
+        CimplError::new(code as i32, format!("{}: {}", name, detail))
     }
 }
 
@@ -361,7 +361,7 @@ pub extern "C" fn secret_to_bytes(input: *const c_char, out_len: *mut usize) -> 
 #[no_mangle]
 pub extern "C" fn secret_from_bytes(data: *const u8, len: usize) -> *mut c_char {
     if data.is_null() {
-        Error::from(CimplError::NullParameter("data".to_string())).set_last();
+        CimplError::null_parameter("data").set_last();
         return std::ptr::null_mut();
     }
     
@@ -463,14 +463,14 @@ pub extern "C" fn message_get_stats(msg: *mut SecretMessage) -> *mut MessageStat
 /// Gets the error code of the last error (0 if no error)
 #[no_mangle]
 pub extern "C" fn secret_error_code() -> i32 {
-    Error::last_code()
+    CimplError::last_code()
 }
 
 /// Gets the error message of the last error (NULL if no error)
 /// Caller must free the returned string with secret_free()
 #[no_mangle]
 pub extern "C" fn secret_last_error() -> *mut c_char {
-    option_to_c_string!(Error::last_message())
+    option_to_c_string!(CimplError::last_message())
 }
 
 // ============================================================================

@@ -13,49 +13,14 @@
 
 use std::cell::RefCell;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, CimplError>;
 
 // LAST_ERROR handling borrowed from Copyright (c) 2018 Michael Bryan
 thread_local! {
-    static LAST_ERROR: RefCell<Option<Error>> = const { RefCell::new(None) };
+    static LAST_ERROR: RefCell<Option<CimplError>> = const { RefCell::new(None) };
 }
 
-/// Internal error types for cimpl infrastructure (codes 1-99)
-///
-/// These errors are used internally by cimpl macros and utilities.
-/// Library developers should define their own error enums starting at code 100+.
-///
-/// **Note:** While this enum is public (required for macro expansion), you should
-/// not construct these directly. Use the `cimpl` macros which handle error creation.
-#[derive(Debug, Clone)]
-pub enum CimplError {
-    /// A required parameter was NULL
-    NullParameter(String),
-    /// String exceeds maximum allowed length
-    
-    #[allow(dead_code)]  // only used from macros that set the error
-    StringTooLong(String),
-    /// Handle value is invalid or already freed
-    InvalidHandle(u64),
-    /// Handle type doesn't match the expected type
-    WrongHandleType(u64),
-    /// Other error occurred
-    Other(String),
-}
-
-impl From<CimplError> for Error {
-    fn from(e: CimplError) -> Self {
-        match e {
-            CimplError::NullParameter(param) => Error::new(1, format!("NullParameter: {}", param)),
-            CimplError::StringTooLong(param) => Error::new(2, format!("StringTooLong: {}", param)),
-            CimplError::InvalidHandle(id) => Error::new(3, format!("InvalidHandle: {}", id)),
-            CimplError::WrongHandleType(id) => Error::new(4, format!("WrongHandleType: {}", id)),
-            CimplError::Other(msg) => Error::new(5, format!("Other: {}", msg)),
-        }
-    }
-}
-
-/// FFI Error - holds an error code and message
+/// CimplError - holds an error code and message
 ///
 /// This is a simple struct that can represent any error with an integer code
 /// and a descriptive message. Library developers implement `From` to convert
@@ -78,17 +43,17 @@ impl From<CimplError> for Error {
 /// }
 ///
 /// // Implement From for your error type
-/// impl From<mylib::Error> for cimpl::Error {
+/// impl From<mylib::Error> for CimplError {
 ///     fn from(e: mylib::Error) -> Self {
 ///         match e {
 ///             mylib::Error::Parse(msg) => {
-///                 cimpl::Error::new(
+///                 CimplError::new(
 ///                     MyLibError::ParseError as i32,
 ///                     format!("ParseError: {}", msg)
 ///                 )
 ///             }
 ///             mylib::Error::Validation(msg) => {
-///                 cimpl::Error::new(
+///                 CimplError::new(
 ///                     MyLibError::ValidationError as i32,
 ///                     format!("ValidationError: {}", msg)
 ///                 )
@@ -100,16 +65,35 @@ impl From<CimplError> for Error {
 /// // Macros automatically use From/Into
 /// let result = ok_or_return_null!(parse_something());
 /// ```
+///
 #[derive(Debug, Clone)]
-pub struct Error {
+pub struct CimplError {
     code: i32,
     message: String,
 }
 
-impl Error {
+impl CimplError {
     /// Creates a new error with the given code and message
-    pub fn new(code: i32, message: String) -> Self {
-        Self { code, message }
+    pub fn new<S: Into<String>>(code: i32, message: S) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+    pub fn null_parameter<S: Into<String>>(param: S) -> Self {
+        Self::new(1, format!("NullParameter: {}", param.into()))
+    }
+    pub fn string_too_long<S: Into<String>>(param: S) -> Self {
+        Self::new(2, format!("StringTooLong: {}", param.into()))
+    }
+    pub fn invalid_handle(id: u64) -> Self {
+        Self::new(3, format!("InvalidHandle: {}", id))
+    }
+    pub fn wrong_handle_type(id: u64) -> Self {
+        Self::new(4, format!("WrongHandleType: {}", id))
+    }
+    pub fn other<S: Into<String>>(msg: S) -> Self {
+        Self::new(5, format!("Other: {}", msg.into()))
     }
 
     /// Peeks at the last error message without clearing it
@@ -141,15 +125,15 @@ impl Error {
     ///
     /// This is rarely needed - errors naturally get overwritten by new errors.
     /// Provided for completeness and testing.
-    pub fn take_last() -> Option<Error> {
+    pub fn take_last() -> Option<CimplError> {
         LAST_ERROR.with(|prev| prev.borrow_mut().take())
     }
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for CimplError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for CimplError {}

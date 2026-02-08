@@ -1,406 +1,233 @@
-# AI-Assisted FFI Binding Generation
+# AI Workflow Guidelines for cimpl FFI Development
 
-This guide explains how to use AI to generate language bindings for Rust libraries using `cimpl`.
+This document provides specific guidance for AI assistants working with the cimpl library.
 
-## When to Use cimpl
+## 🔍 PRE-FLIGHT SCAN (DO THIS FIRST!)
 
-`cimpl` is ideal for:
-- ✅ **Python** - ctypes or cffi bindings
-- ✅ **Lua** - LuaJIT FFI
-- ✅ **Ruby** - FFI gem
-- ✅ **Go** - cgo
-- ✅ **C#** - P/Invoke
-- ✅ **Java** - JNA/JNI
-- ✅ **Swift** - C interop
-- ✅ **C/C++** - Direct usage
+**Before submitting ANY FFI code**, run this pattern scan:
 
-## When NOT to Use cimpl
+### Pattern Detection Checklist
 
-For **Node.js** and **WASM targets**, use [`wasm-bindgen`](https://github.com/rustwasm/wasm-bindgen) instead:
-- Better performance (no FFI overhead)
-- Native async/await support
-- Automatic TypeScript definitions
-- Direct JavaScript integration
-- Smaller bundle sizes
+Scan the code for these exact patterns and replace:
 
-> **Note**: While Node.js *can* use cimpl via [Koffi FFI](https://github.com/Koromix/koffi), WASM with `wasm-bindgen` is the better choice for Node.js projects.
+```regex
+PATTERN 1: if.*\.is_null\(\).*Error.*return
+→ REPLACE: deref_or_return! or deref_mut_or_return!
 
-## The Three-Stage Workflow
+PATTERN 2: match.*\{.*Ok\(.*\).*=>.*Err\(.*\).*=>.*Error.*set_last.*return
+→ REPLACE: ok_or_return! or ok_or_return_null!
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ Stage 1: Write or Select a Rust Library                │
-│   • Your own code, or an existing crate                │
-│   • Standard Rust - no FFI yet                          │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ Stage 2: AI Generates C FFI (with cimpl)                │
-│   • AI writes the Rust FFI wrapper using cimpl macros   │
-│   • cbindgen generates C header automatically           │
-│   • Clean, documented C API                             │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│ Stage 3: AI Generates Target Language Bindings         │
-│   • AI reads the C header                               │
-│   • Generates Python, Lua, etc.                        │
-│   • Idiomatic, safe, automatic memory management        │
-└─────────────────────────────────────────────────────────┘
+PATTERN 3: unsafe.*\{.*if.*is_null.*&(mut)?\s*\*
+→ REPLACE: deref_or_return! or deref_mut_or_return!
+
+PATTERN 4: Manual string conversion with bounds checking
+→ REPLACE: cstr_or_return!
 ```
 
-## Stage 1: Choose Your Rust Library
+### Literal Examples to Search For
 
-You have two options:
+Search your code for these literal strings:
+- `if ptr.is_null()` → Should use a macro
+- `if ctx.is_null()` → Should use a macro
+- `match result { Ok` → Should use `ok_or_return!`
+- `unsafe { &mut *` → Should use `deref_mut_or_return!`
+- `unsafe { &*` → Should use `deref_or_return!`
 
-### Option A: Wrap an Existing Crate
+**If you find ANY of these, you missed a macro. Go back and fix it.**
 
-Pick any crate from crates.io that you want to expose to other languages.
+---
 
-**Example**: Wrapping the `uuid` crate
+## Core Principle: ALWAYS Use Macros When Available
 
-```toml
-[dependencies]
-cimpl = "0.1"
-uuid = { version = "1.11", features = ["v4", "v7"] }
+**CRITICAL**: Before writing any manual FFI pattern, check if a cimpl macro exists for it. The macros are in `src/macros.rs` and provide consistent error handling.
 
-[build-dependencies]
-cbindgen = "0.27"
+## Common Anti-Patterns to AVOID
+
+### ❌ DON'T: Manual null checks
+```rust
+// BAD
+let ctx_ref = unsafe {
+    if ctx.is_null() {
+        Error::from(CimplError::NullParameter("ctx".to_string())).set_last();
+        return -1;
+    }
+    &mut *ctx
+};
 ```
 
-### Option B: Write Your Own Library
+### ✅ DO: Use deref macros
+```rust
+// GOOD
+let ctx_ref = deref_mut_or_return_neg!(ctx, C2paContext);
+```
 
-Create your Rust implementation first, without any FFI concerns.
+### ❌ DON'T: Manual Result matching
+```rust
+// BAD
+match some_operation() {
+    Ok(value) => {
+        do_something(value);
+        0
+    }
+    Err(e) => {
+        Error::from(MyInternalError::from(e)).set_last();
+        -1
+    }
+}
+```
 
-**Example**: A custom parser library
+### ✅ DO: Use ok_or_return macros
+```rust
+// GOOD
+ok_or_return!(
+    some_operation().map_err(MyInternalError::from),
+    |value| {
+        do_something(value);
+        0
+    },
+    -1
+)
+```
+
+## Complete Macro Reference
+
+### Pointer Handling
+- `ptr_or_return!(ptr, err_val)` - Check pointer not null
+- `deref_or_return!(ptr, Type, err_val)` - Deref immutable pointer
+- `deref_or_return_neg!(ptr, Type)` - Deref immutable, return -1
+- `deref_mut_or_return!(ptr, Type, err_val)` - Deref mutable pointer
+- `deref_mut_or_return_neg!(ptr, Type)` - Deref mutable, return -1
+
+### String Conversion
+- `cstr_or_return!(ptr, err_val)` - C string to Rust String
+- `cstr_or_return_null!(ptr)` - C string, return NULL on error
+- `to_c_string(s)` - Rust String to C string
+- `option_to_c_string!(opt)` - Option<String> to C (NULL if None)
+
+### Result Handling
+- `ok_or_return!(result, transform, err_val)` - Handle Result with transform
+- `ok_or_return_null!(result)` - Handle Result, return NULL
+- `ok_or_return_int!(result)` - Handle Result, return -1
+- `ok_or_return_zero!(result)` - Handle Result, return 0
+- `ok_or_return_false!(result)` - Handle Result, return false
+
+### Option Handling
+- `some_or_return!(opt, error, err_val)` - Handle Option with custom error
+- `some_or_return_null!(opt, error)` - Handle Option, return NULL
+- `some_or_return_other_null!(opt, msg)` - Handle Option with Error::other message
+
+### Object Creation
+- `box_tracked!(value)` - Heap allocate and return tracked pointer
+- `cimpl_free(ptr)` - Free tracked pointer
+
+## Decision Tree for Common Patterns
+
+### "I need to validate a pointer parameter"
+1. Immutable access? → `deref_or_return_neg!(ptr, Type)`
+2. Mutable access? → `deref_mut_or_return_neg!(ptr, Type)`
+3. Just null check? → `ptr_or_return!(ptr, -1)`
+
+### "I need to handle a Result"
+1. Simple case (return NULL on error)? → `ok_or_return_null!(result)`
+2. Need to transform success value? → `ok_or_return!(result, |v| transform(v), err_val)`
+3. External error needs conversion? → Use `.map_err()` first, then macro
+
+### "I need to handle an Option"
+1. Validation error? → `some_or_return_other_null!(opt, "reason")`
+2. Custom error? → `some_or_return_null!(opt, Error::specific(...))`
+
+### "I need to convert strings"
+1. C → Rust? → `cstr_or_return!(ptr, -1)`
+2. Rust → C? → `to_c_string(s)`
+3. Optional string → C? → `option_to_c_string!(opt)`
+
+## Error Conversion Pattern
+
+When working with external crate errors that don't directly implement `From<ExtErr> for cimpl::Error`:
 
 ```rust
-pub struct Parser {
-    // Your implementation
+// Define internal error wrapper
+enum MyInternalError {
+    ExternalError(external::Error),
 }
 
-impl Parser {
-    pub fn new() -> Self { /* ... */ }
-    pub fn parse(&mut self, input: &str) -> Result<Ast, Error> { /* ... */ }
-}
-```
-
-## Stage 2: AI Generates C FFI Wrapper
-
-### Prompt for AI
-
-```
-I have a Rust library that I want to expose through a C FFI using the cimpl library.
-
-The cimpl library provides these macros:
-- box_tracked!(expr) - Allocate and track a Box pointer
-- cstr_or_return_null!(ptr) - Convert C string with null check
-- deref_or_return_null!(ptr, Type) - Validate and dereference pointer
-- deref_or_return_false!(ptr, Type) - Same but return false on error
-- deref_or_return_zero!(ptr, Type) - Same but return 0 on error
-- deref_mut_or_return_neg!(ptr, Type) - Mutable deref, return -1 on error
-- ok_or_return_null!(result) - Unwrap Result or return null
-- to_c_string(string) - Convert Rust String to C string
-- cimpl_free(ptr) - Universal free function
-
-Error handling:
-- Define error constants with #[no_mangle] pub static ERROR_*: i32 = <code>;
-- Create ERROR_MAPPER const: fn(&ExternalError) -> (i32, &'static str)
-- The macros use ERROR_MAPPER automatically for error conversion
-
-Here's my Rust library:
-[paste your library code or describe the API]
-
-Please generate:
-1. A complete Rust FFI wrapper using cimpl macros
-2. A build.rs that runs cbindgen
-3. A cbindgen.toml configuration file
-
-Follow these patterns:
-- Use external types directly (they're opaque to cbindgen)
-- All FFI functions are #[no_mangle] pub extern "C"
-- Use box_tracked! for constructors
-- Use deref_or_return_* for all pointer access
-- Add comprehensive doc comments (cbindgen will include them)
-```
-
-### What You'll Get
-
-The AI will generate something like:
-
-```rust
-use cimpl::{box_tracked, cstr_or_return_null, deref_or_return_null, 
-            ok_or_return_null, to_c_string};
-use std::os::raw::c_char;
-use uuid::Uuid;
-use std::str::FromStr;
-
-// Error codes
-#[no_mangle]
-pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
-
-// Error mapper
-const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = 
-    |_e| (ERROR_UUID_PARSE_ERROR, "ParseError");
-
-/// Creates a new random UUID (version 4).
-#[no_mangle]
-pub extern "C" fn uuid_new_v4() -> *mut Uuid {
-    box_tracked!(Uuid::new_v4())
+// Implement From for the wrapper
+impl From<external::Error> for MyInternalError {
+    fn from(e: external::Error) -> Self {
+        MyInternalError::ExternalError(e)
+    }
 }
 
-/// Parses a UUID from a string.
-#[no_mangle]
-pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
-    let s_str = cstr_or_return_null!(s);
-    let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
-    box_tracked!(uuid)
+// Implement From to cimpl::Error
+impl From<MyInternalError> for cimpl::Error {
+    fn from(e: MyInternalError) -> Self {
+        // Map to error codes
+    }
 }
 
-/// Converts UUID to string.
-#[no_mangle]
-pub extern "C" fn uuid_to_string(uuid: *mut Uuid) -> *mut c_char {
-    let obj = deref_or_return_null!(uuid, Uuid);
-    to_c_string(obj.to_string())
-}
+// Use with .map_err() in macros
+ok_or_return_null!(
+    external_operation().map_err(MyInternalError::from)
+)
 ```
 
-Plus `build.rs`:
+## Checklist Before Submitting Code
 
-```rust
-extern crate cbindgen;
+- [ ] All pointer dereferences use `deref_or_return!` or `deref_mut_or_return!`
+- [ ] All C string conversions use `cstr_or_return!`
+- [ ] All Result handling uses `ok_or_return!` variants
+- [ ] All Option handling uses `some_or_return!` variants
+- [ ] No manual `if ptr.is_null()` checks
+- [ ] No manual `unsafe { &*ptr }` or `unsafe { &mut *ptr }`
+- [ ] No manual `match result { Ok/Err }` patterns
+- [ ] Error conversions use `.map_err()` when needed
 
-fn main() {
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let output_file = std::path::Path::new(&crate_dir)
-        .join("include")
-        .join("cimpl_uuid.h");
-    
-    cbindgen::Builder::new()
-        .with_crate(crate_dir)
-        .with_language(cbindgen::Language::C)
-        .generate()
-        .expect("Unable to generate bindings")
-        .write_to_file(output_file);
-}
-```
+## When Manual Code is Acceptable
 
-And `cbindgen.toml`:
+It's okay to write manual code when:
+1. The operation is unique and no macro fits
+2. You're implementing new macro functionality
+3. The macro would obscure rather than clarify the code
 
-```toml
-language = "C"
-include_guard = "CIMPL_UUID_H"
-documentation = true
-documentation_style = "doxy"
+**But always ask first**: "Is there a macro for this?"
 
-[export]
-include = ["Uuid"]
-```
+## Final Submission Checklist
 
-### Build and Test
+Run this checklist on every FFI function before submitting:
 
-```bash
-cargo build --release
-```
+### 1. Visual Scan
+Look at your code. Do you see any of these?
+- [ ] `if ptr.is_null()`
+- [ ] `if ctx.is_null()`  
+- [ ] `match result { Ok`
+- [ ] `unsafe { &*`
+- [ ] `unsafe { &mut *`
+- [ ] Manual string length checks
 
-This generates:
-- `target/release/libcimpl_uuid.{a,so,dylib}` - The library
-- `include/cimpl_uuid.h` - The C header with full documentation
+If YES to any → **STOP. Use a macro.**
 
-## Stage 3: AI Generates Language Bindings
+### 2. Import Check
+- [ ] Did you import the macros you're using?
+- [ ] Check your `use cimpl::{...}` statement
 
-Now you have a clean C header file. Use AI to generate bindings for any language!
+### 3. Error Conversion Check
+- [ ] External errors use `.map_err(InternalError::from)`
+- [ ] Not manually calling `Error::from()` in match arms
 
-### Example: Python Bindings
+### 4. Return Value Check
+- [ ] Returning `-1`? → Use `_neg` or `_int` suffix
+- [ ] Returning `NULL`? → Use `_null` suffix
+- [ ] Returning `0`? → Use `_zero` suffix
+- [ ] Returning `false`? → Use `_false` suffix
 
-**Prompt:**
+---
 
-```
-Generate Python bindings for this C library using ctypes.
+## Quick Reference: Read This First
 
-Requirements:
-- Custom exception classes based on error codes
-- Pythonic API with classes and methods
-- Automatic memory management (use __del__)
-- Type hints
-- Properties where appropriate
+Before writing any FFI function:
+1. Read the banner at the top of the file you're editing
+2. Run the pre-flight scan above
+3. Check `src/macros.rs` lines 1-150 (the documentation)
+4. Search for similar patterns in existing examples
 
-Here's the C header file:
-[paste include/cimpl_uuid.h]
-```
-
-**What You'll Get:**
-
-```python
-import ctypes
-from pathlib import Path
-from typing import Optional
-
-# Load library
-lib = ctypes.CDLL(Path(__file__).parent / "libcimpl_uuid.so")
-
-# Error codes
-ERROR_UUID_PARSE_ERROR = 100
-
-class ParseError(Exception):
-    """UUID parse error"""
-    pass
-
-# Function declarations
-lib.uuid_new_v4.restype = ctypes.c_void_p
-lib.uuid_parse.argtypes = [ctypes.c_char_p]
-lib.uuid_parse.restype = ctypes.c_void_p
-lib.uuid_to_string.argtypes = [ctypes.c_void_p]
-lib.uuid_to_string.restype = ctypes.POINTER(ctypes.c_char)
-lib.uuid_error_code.restype = ctypes.c_int32
-lib.uuid_last_error.restype = ctypes.POINTER(ctypes.c_char)
-lib.cimpl_free.argtypes = [ctypes.c_void_p]
-lib.cimpl_free.restype = ctypes.c_int
-
-class Uuid:
-    """UUID wrapper with automatic memory management"""
-    
-    def __init__(self, handle: int):
-        self._handle = handle
-    
-    def __del__(self):
-        if self._handle:
-            lib.cimpl_free(self._handle)
-            self._handle = None
-    
-    def __str__(self) -> str:
-        result = lib.uuid_to_string(self._handle)
-        if not result:
-            self._raise_last_error()
-        s = ctypes.string_at(result).decode('utf-8')
-        lib.cimpl_free(result)
-        return s
-    
-    @staticmethod
-    def _raise_last_error():
-        code = lib.uuid_error_code()
-        msg_ptr = lib.uuid_last_error()
-        msg = ctypes.string_at(msg_ptr).decode('utf-8') if msg_ptr else "Unknown error"
-        if msg_ptr:
-            lib.cimpl_free(msg_ptr)
-        
-        if code == ERROR_UUID_PARSE_ERROR:
-            raise ParseError(msg)
-        raise Exception(f"Error {code}: {msg}")
-    
-    @classmethod
-    def v4(cls) -> 'Uuid':
-        """Generate a random UUID v4"""
-        handle = lib.uuid_new_v4()
-        if not handle:
-            cls._raise_last_error()
-        return cls(handle)
-    
-    @classmethod
-    def parse(cls, s: str) -> 'Uuid':
-        """Parse UUID from string"""
-        handle = lib.uuid_parse(s.encode('utf-8'))
-        if not handle:
-            cls._raise_last_error()
-        return cls(handle)
-
-# Usage:
-# uuid = Uuid.v4()
-# print(uuid)  # Automatic memory management
-```
-
-## Tips for Success
-
-### 1. Iterate on the C Header
-
-If the AI-generated bindings have issues:
-- **Don't fix the binding code directly**
-- Improve the C header documentation
-- Regenerate the bindings
-- The header is the source of truth
-
-### 2. Use Consistent Patterns
-
-The AI learns from patterns in your C header:
-- Consistent naming (`library_type_action`)
-- Error code documentation
-- Example code in comments
-- Clear ownership semantics
-
-### 3. Test Incrementally
-
-1. Generate the Rust FFI
-2. Test from C first (write a simple C program)
-3. Then generate language bindings
-4. Test each language separately
-
-### 4. Provide Examples
-
-In your prompt, show example usage:
-
-```
-I want the Python API to look like this:
-
-uuid = Uuid.v4()
-print(uuid)  # Automatic __str__
-
-try:
-    uuid = Uuid.parse("invalid")
-except ParseError as e:
-    print(f"Error: {e}")
-```
-
-## Real-World Example
-
-See [uuid-example/](./uuid-example/) for a complete working example:
-
-1. **Rust FFI**: [uuid-example/src/lib.rs](./uuid-example/src/lib.rs)
-   - Wraps the `uuid` crate with cimpl
-   - 200 lines of clean, safe code
-
-2. **Generated Header**: [uuid-example/include/cimpl_uuid.h](./uuid-example/include/cimpl_uuid.h)
-   - Auto-generated by cbindgen
-   - Full documentation
-
-3. **Language Bindings**: [uuid-example/bindings/](./uuid-example/bindings/)
-   - Python (ctypes)
-   - Lua (LuaJIT FFI)
-   - C++ (direct usage)
-
-Language bindings were generated with AI assistance and minimal manual editing!
-
-## Benefits of This Approach
-
-### ✅ One Codebase
-Write Rust once, generate bindings for all languages
-
-### ✅ Type Safety
-Rust's type system + cimpl's pointer validation
-
-### ✅ Memory Safety
-Automatic tracking, no manual free() calls in target languages
-
-### ✅ Fast Iteration
-Change the Rust API, regenerate everything
-
-### ✅ AI-Friendly
-AI understands C patterns, generates idiomatic bindings
-
-### ✅ Future-Proof
-C ABI is stable, bindings work across language versions
-
-## Next Steps
-
-1. **Start Simple**: Try wrapping a small library first
-2. **Read the Example**: Study [uuid-example/](./uuid-example/)
-3. **Use AI**: Let AI do the heavy lifting
-4. **Iterate**: Improve the C header based on results
-5. **Share**: Contribute your findings back to cimpl
-
-## See Also
-
-- [AI_GENERATION_GUIDE.md](./uuid-example/AI_GENERATION_GUIDE.md) - Detailed testing methodology
-- [EXTERNAL_CRATE_EXAMPLE.md](./uuid-example/EXTERNAL_CRATE_EXAMPLE.md) - Technical deep dive
-- [PHILOSOPHY.md](./PHILOSOPHY.md) - Why this approach works
+The time spent understanding macros is recovered many times over in consistency, safety, and maintainability.
