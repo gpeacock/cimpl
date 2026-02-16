@@ -59,13 +59,10 @@ impl From<Error> for CimplError {
 pub extern "C" fn uuid_parse(s: *const c_char) -> *mut uuid::Uuid {
     let s_str = cstr_or_return_null!(s);
     
-    let uuid = match uuid::Uuid::from_str(&s_str) {
-        Ok(u) => u,
-        Err(e) => {
-            Error::ParseError(e.to_string()).into().set_last();
-            return std::ptr::null_mut();
-        }
-    };
+    let uuid = ok_or_return_null!(
+        uuid::Uuid::from_str(&s_str)
+            .map_err(|e| Error::ParseError(e.to_string()))
+    );
     
     box_tracked!(uuid)
 }
