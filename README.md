@@ -26,7 +26,7 @@ Write your library once in safe Rust, expose it through a clean C API, and let A
 
 **cimpl makes it simple:**
 - ✅ Type-safe pointer tracking with validation
-- ✅ Automatic error handling with error codes
+- ✅ Automatic error handling with descriptive messages
 - ✅ Memory leak detection
 - ✅ Clean macros for common patterns
 - ✅ AI-friendly C headers (auto-generated via cbindgen)
@@ -38,21 +38,35 @@ Write your library once in safe Rust, expose it through a clean C API, and let A
 
 ```rust
 use cimpl::*;
-use uuid::Uuid;
+use std::str::FromStr;
 
-// Define error constants (visible to cbindgen)
-#[no_mangle]
-pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
+// Your library's error type
+pub enum Error {
+    ParseError(String),
+}
 
-// Register the error mapper
-const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = 
-    |_e| (ERROR_UUID_PARSE_ERROR, "ParseError");
+// Map to CimplError for FFI
+impl From<Error> for CimplError {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::ParseError(s) => CimplError::new(format!("ParseError {}", s)),
+        }
+    }
+}
 
 // Clean, safe FFI function
 #[no_mangle]
-pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
+pub extern "C" fn uuid_parse(s: *const c_char) -> *mut uuid::Uuid {
     let s_str = cstr_or_return_null!(s);
-    let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
+    
+    let uuid = match uuid::Uuid::from_str(&s_str) {
+        Ok(u) => u,
+        Err(e) => {
+            Error::ParseError(e.to_string()).into().set_last();
+            return std::ptr::null_mut();
+        }
+    };
+    
     box_tracked!(uuid)
 }
 ```
@@ -60,7 +74,7 @@ pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
 **That's it!** From this simple code:
 - cbindgen generates a C header
 - Type validation ensures safety
-- Errors map to C error codes
+- Errors map to descriptive strings ("ErrorName details")
 - Memory is tracked automatically
 - AI can generate bindings for any language
 
@@ -72,9 +86,8 @@ pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
 ```c
 Uuid* uuid = uuid_parse("550e8400-e29b-41d4-a716-446655440000");
 if (uuid == NULL) {
-    int code = uuid_error_code();  // 100
-    char* msg = uuid_last_error(); // "ParseError: ..."
-    printf("Error %d: %s\n", code, msg);
+    char* msg = uuid_last_error(); // "ParseError: invalid character..."
+    printf("Error: %s\n", msg);
     uuid_free(msg);
     return -1;
 }
@@ -89,7 +102,7 @@ try:
     uuid = Uuid.parse("550e8400-e29b-41d4-a716-446655440000")
     print(uuid)
 except ParseError as e:
-    print(f"Error {e.code}: {e.message}")
+    print(f"Error: {e.message}")
 ```
 
 ### From C to Lua (auto-generated!)
@@ -114,17 +127,17 @@ end
 - **Type mismatch detection**
 
 ### Error Handling
-- **Table-based error mapping** from Rust errors to C error codes
-- **AI-friendly format**: "ErrorName: details"
-- **Automatic conversion** via macros
-- **Standard C conventions**: NULL/−1 indicates error
+- **String-based error messages** with consistent "ErrorName details" format
+- **AI-friendly format**: Easy to parse and convert to typed exceptions
+- **Automatic conversion** via `From` trait
+- **Standard C conventions**: NULL/-1 indicates error, call `last_error()` for details
 
 ### Clean Macros
 - `box_tracked!()` - Allocate and track Box
 - `cstr_or_return_*!()` - C string conversion with null checks
 - `deref_or_return_*!()` - Pointer validation and dereferencing
-- `ok_or_return_*!()` - Result unwrapping with error mapper
-- Error mapper pattern for clean, flexible error handling
+- `ok_or_return_*!()` - Result unwrapping with automatic error conversion
+- String-based error handling for clean, flexible error messages
 
 ## Getting Started
 
