@@ -45,11 +45,11 @@ pub enum Error {
     ParseError(String),
 }
 
-// Map to CimplError for FFI
-impl From<Error> for CimplError {
+// Map to cimpl::Error for FFI
+impl From<Error> for cimpl::Error {
     fn from(e: Error) -> Self {
         match e {
-            Error::ParseError(s) => CimplError::new(format!("ParseError {}", s)),
+            Error::ParseError(s) => cimpl::Error::new("ParseError", s),
         }
     }
 }

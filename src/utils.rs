@@ -25,7 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::cimpl_error::CimplError;
+use crate::cimpl_error::Error;
 
 // ============================================================================
 // Pointer Registry - Tracks pointers with their cleanup functions
@@ -58,24 +58,24 @@ impl PointerRegistry {
     }
 
     /// Validate that a pointer is tracked and has the expected type
-    pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), CimplError> {
+    pub fn validate(&self, ptr: usize, expected_type: TypeId) -> Result<(), Error> {
         if ptr == 0 {
-            return Err(CimplError::null_parameter("pointer"));
+            return Err(Error::null_parameter("pointer"));
         }
 
         let tracked = self
             .tracked
             .lock()
-            .map_err(|_| CimplError::mutex_poisoned())?;
+            .map_err(|_| Error::mutex_poisoned())?;
         match tracked.get(&ptr) {
             Some((actual_type, _)) if *actual_type == expected_type => Ok(()),
-            Some(_) => Err(CimplError::wrong_pointer_type(ptr as u64)),
-            None => Err(CimplError::untracked_pointer(ptr as u64)),
+            Some(_) => Err(Error::wrong_pointer_type(ptr as u64)),
+            None => Err(Error::untracked_pointer(ptr as u64)),
         }
     }
 
     /// Free a tracked pointer by calling its cleanup function
-    pub fn free(&self, ptr: usize) -> Result<(), CimplError> {
+    pub fn free(&self, ptr: usize) -> Result<(), Error> {
         if ptr == 0 {
             return Ok(()); // NULL is always safe
         }
@@ -84,10 +84,10 @@ impl PointerRegistry {
             let mut tracked = self
                 .tracked
                 .lock()
-                .map_err(|_| CimplError::mutex_poisoned())?;
+                .map_err(|_| Error::mutex_poisoned())?;
             match tracked.remove(&ptr) {
                 Some((_, cleanup)) => cleanup,
-                None => return Err(CimplError::untracked_pointer(ptr as u64)),
+                None => return Err(Error::untracked_pointer(ptr as u64)),
             }
         }; // Release lock before cleanup
 
@@ -177,7 +177,7 @@ pub fn track_arc_mutex<T: 'static>(ptr: *mut Mutex<T>) -> *mut Mutex<T> {
 }
 
 /// Validate that a pointer is tracked and has the expected type
-pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), CimplError> {
+pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
     get_registry().validate(ptr as usize, TypeId::of::<T>())
 }
 
@@ -191,7 +191,7 @@ pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), CimplError> {
 /// - `0` on success
 /// - `-1` on error (pointer not tracked, double-free, or invalid pointer)
 ///
-/// When an error occurs, the error is set via [`crate::CimplError::set_last`] and can be
+/// When an error occurs, the error is set via [`crate::Error::set_last`] and can be
 /// retrieved using the error handling functions.
 ///
 /// # Test Mode Error Reporting
@@ -329,13 +329,13 @@ pub unsafe fn safe_slice_from_raw_parts(
     ptr: *const c_uchar,
     len: usize,
     param_name: &str,
-) -> Result<&[u8], CimplError> {
+) -> Result<&[u8], Error> {
     if ptr.is_null() {
-        return Err(CimplError::null_parameter(param_name));
+        return Err(Error::null_parameter(param_name));
     }
 
     if !is_safe_buffer_size(len, ptr) {
-        return Err(CimplError::invalid_buffer_size(len, param_name));
+        return Err(Error::invalid_buffer_size(len, param_name));
     }
 
     Ok(std::slice::from_raw_parts(ptr, len))
@@ -524,7 +524,7 @@ mod tests {
         let result = validate_pointer::<i32>(std::ptr::null_mut());
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.code(), 1); // null_parameter
+        assert_eq!(err.variant(), Some("NullParameter"));
     }
 
     #[test]
@@ -535,7 +535,7 @@ mod tests {
         let result = validate_pointer::<i32>(ptr);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.code(), 3); // untracked_pointer
+        assert_eq!(err.variant(), Some("UntrackedPointer"));
         
         // Clean up untracked pointer
         unsafe { let _ = Box::from_raw(ptr); }
@@ -558,7 +558,7 @@ mod tests {
         let result = unsafe { safe_slice_from_raw_parts(std::ptr::null(), 5, "test_param") };
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.code(), 1); // null_parameter
+        assert_eq!(err.variant(), Some("NullParameter"));
     }
 
     #[test]
@@ -570,7 +570,7 @@ mod tests {
         let result = unsafe { safe_slice_from_raw_parts(ptr, usize::MAX, "overflow_test") };
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.code(), 7); // invalid_buffer_size
+        assert_eq!(err.variant(), Some("InvalidBufferSize"));
     }
 
     #[test]

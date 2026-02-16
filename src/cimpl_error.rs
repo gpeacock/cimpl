@@ -13,109 +13,187 @@
 
 use std::cell::RefCell;
 
-pub type Result<T> = std::result::Result<T, CimplError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 // LAST_ERROR handling borrowed from Copyright (c) 2018 Michael Bryan
 thread_local! {
-    static LAST_ERROR: RefCell<Option<CimplError>> = const { RefCell::new(None) };
+    static LAST_ERROR: RefCell<Option<Error>> = const { RefCell::new(None) };
 }
 
-/// CimplError - holds an error code and message
+/// Error - FFI error container with variant name and message
 ///
-/// This is a simple struct that can represent any error with an integer code
-/// and a descriptive message. Library developers implement `From` to convert
-/// their error types to this struct.
+/// This struct holds errors in a format designed for cross-language FFI bindings.
+/// Errors are formatted as: `"VariantName: details"`
 ///
-/// # Error Code Ranges
+/// Library developers implement `From` to convert their error types to this struct.
 ///
-/// - **0**: No error (returned by error_code functions when no error is set)
-/// - **1-99**: Reserved for cimpl infrastructure errors
-/// - **100+**: Available for library-specific errors
+/// # Format Convention
+///
+/// Errors follow the format: `"VariantName: message details"`
+/// - **VariantName**: The error type (for parsing in language bindings)
+/// - **message details**: Human-readable description
+///
+/// This format allows language bindings to parse the variant name and create
+/// typed exceptions/errors in the target language.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// // Define your error codes
-/// #[repr(i32)]
-/// pub enum MyLibError {
-///     ParseError = 100,
-///     ValidationError = 101,
+/// // Your library's error type
+/// #[derive(Debug)]
+/// pub enum MyError {
+///     ParseError(String),
+///     ValidationError,
 /// }
 ///
-/// // Implement From for your error type
-/// impl From<mylib::Error> for CimplError {
-///     fn from(e: mylib::Error) -> Self {
-///         match e {
-///             mylib::Error::Parse(msg) => {
-///                 CimplError::new(
-///                     MyLibError::ParseError as i32,
-///                     format!("ParseError: {}", msg)
-///                 )
-///             }
-///             mylib::Error::Validation(msg) => {
-///                 CimplError::new(
-///                     MyLibError::ValidationError as i32,
-///                     format!("ValidationError: {}", msg)
-///                 )
-///             }
+/// // Implement Display for user-friendly messages
+/// impl std::fmt::Display for MyError {
+///     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+///         match self {
+///             MyError::ParseError(s) => write!(f, "parse failed: {}", s),
+///             MyError::ValidationError => write!(f, "validation failed"),
 ///         }
 ///     }
 /// }
 ///
-/// // Macros automatically use From/Into
-/// let result = ok_or_return_null!(parse_something());
+/// impl std::error::Error for MyError {}
+///
+/// // Convert to cimpl::Error for FFI
+/// impl From<MyError> for cimpl::Error {
+///     fn from(e: MyError) -> Self {
+///         // Option 1: Automatic (uses Debug for variant, Display for message)
+///         cimpl::Error::from_error(e)
+///         
+///         // Option 2: Manual control
+///         match e {
+///             MyError::ParseError(s) => cimpl::Error::new("ParseError", s),
+///             MyError::ValidationError => cimpl::Error::new("ValidationError", e.to_string()),
+///         }
+///     }
+/// }
 /// ```
 ///
 #[derive(Debug, Clone)]
-pub struct CimplError {
-    code: i32,
+pub struct Error {
     message: String,
 }
 
-impl CimplError {
-    /// Creates a new error with the given code and message
-    pub fn new<S: Into<String>>(code: i32, message: S) -> Self {
+impl Error {
+    /// Creates a new error with variant name and message
+    ///
+    /// The error will be formatted as: `"variant: message"`
+    ///
+    /// # Example
+    /// ```
+    /// # use cimpl::Error;
+    /// let err = Error::new("ParseError", "invalid character 'x'");
+    /// assert_eq!(err.message(), "ParseError: invalid character 'x'");
+    /// assert_eq!(err.variant(), Some("ParseError"));
+    /// assert_eq!(err.details(), Some("invalid character 'x'"));
+    /// ```
+    pub fn new(variant: &str, message: impl Into<String>) -> Self {
         Self {
-            code,
-            message: message.into(),
+            message: format!("{}: {}", variant, message.into()),
         }
     }
-    /// Returns the error code
-    pub fn code(&self) -> i32 {
-        self.code
+
+    /// Creates an error from a std::error::Error
+    ///
+    /// Extracts the variant name from Debug output and uses Display for the message.
+    /// Falls back to "Unknown" variant if Debug format cannot be parsed.
+    ///
+    /// # Example
+    /// ```
+    /// # use cimpl::Error;
+    /// # #[derive(Debug)]
+    /// # enum MyError { Parse }
+    /// # impl std::fmt::Display for MyError {
+    /// #     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    /// #         write!(f, "parse failed")
+    /// #     }
+    /// # }
+    /// # impl std::error::Error for MyError {}
+    /// let my_err = MyError::Parse;
+    /// let err = Error::from_error(my_err);
+    /// assert_eq!(err.variant(), Some("Parse"));
+    /// ```
+    pub fn from_error<E: std::error::Error>(e: E) -> Self {
+        let debug = format!("{:?}", e);
+        
+        // Extract variant name from Debug output
+        // Works with derived Debug: "Variant", "Variant(data)", "Variant { field }"
+        let variant = debug
+            .split(|c| c == '(' || c == '{')
+            .next()
+            .and_then(|s| {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            })
+            .unwrap_or("Unknown");
+
+        Self::new(variant, e.to_string())
     }
 
-    /// Returns the error message
+    /// Returns the full formatted error message
+    ///
+    /// Format: `"VariantName: details"`
     pub fn message(&self) -> &str {
         &self.message
     }
 
-    pub fn null_parameter<S: Into<String>>(param: S) -> Self {
-        Self::new(1, format!("NullParameter: {}", param.into()))
+    /// Extracts the variant name from the error message
+    ///
+    /// Returns None if the message doesn't contain the expected format.
+    pub fn variant(&self) -> Option<&str> {
+        self.message.split_once(": ").map(|(v, _)| v)
     }
 
-    pub fn string_too_long<S: Into<String>>(param: S) -> Self {
-        Self::new(2, format!("StringTooLong: {}", param.into()))
+    /// Extracts the details from the error message (without variant name)
+    ///
+    /// Returns None if the message doesn't contain the expected format.
+    pub fn details(&self) -> Option<&str> {
+        self.message.split_once(": ").map(|(_, d)| d)
     }
 
+    // Convenience constructors for common cimpl internal errors
+
+    /// Creates a null parameter error
+    pub fn null_parameter(param: impl Into<String>) -> Self {
+        Self::new("NullParameter", param.into())
+    }
+
+    /// Creates a string too long error
+    pub fn string_too_long(param: impl Into<String>) -> Self {
+        Self::new("StringTooLong", param.into())
+    }
+
+    /// Creates an untracked pointer error
     pub fn untracked_pointer(ptr: u64) -> Self {
-        Self::new(3, format!("UntrackedPointer: 0x{:x}", ptr))
+        Self::new("UntrackedPointer", format!("0x{:x}", ptr))
     }
 
+    /// Creates a wrong pointer type error
     pub fn wrong_pointer_type(ptr: u64) -> Self {
-        Self::new(4, format!("WrongPointerType: 0x{:x}", ptr))
+        Self::new("WrongPointerType", format!("0x{:x}", ptr))
     }
 
+    /// Creates a mutex poisoned error
     pub fn mutex_poisoned() -> Self {
-        Self::new(6, "MutexPoisoned: thread panic detected".to_string())
+        Self::new("MutexPoisoned", "thread panic detected")
     }
 
+    /// Creates an invalid buffer size error
     pub fn invalid_buffer_size(size: usize, param: &str) -> Self {
-        Self::new(7, format!("InvalidBufferSize: {} for '{}'", size, param))
+        Self::new("InvalidBufferSize", format!("{} for '{}'", size, param))
     }
 
-    pub fn other<S: Into<String>>(msg: S) -> Self {
-        Self::new(5, format!("Other: {}", msg.into()))
+    /// Creates a generic "other" error
+    pub fn other(msg: impl Into<String>) -> Self {
+        Self::new("Other", msg.into())
     }
 
     /// Peeks at the last error message without clearing it
@@ -123,19 +201,6 @@ impl CimplError {
     /// Returns None if no error is set. This does not clear the error.
     pub fn last_message() -> Option<String> {
         LAST_ERROR.with(|prev| prev.borrow().as_ref().map(|e| e.message.clone()))
-    }
-
-    /// Peeks at the last error code without clearing it
-    ///
-    /// Returns 0 if no error is set. This does not clear the error.
-    ///
-    /// # Error Code Convention
-    ///
-    /// - **0**: No error set
-    /// - **1-99**: cimpl infrastructure errors
-    /// - **100+**: Library-specific errors
-    pub fn last_code() -> i32 {
-        LAST_ERROR.with(|prev| prev.borrow().as_ref().map(|e| e.code).unwrap_or(0))
     }
 
     /// Sets this error as the last error
@@ -147,18 +212,18 @@ impl CimplError {
     ///
     /// This is rarely needed - errors naturally get overwritten by new errors.
     /// Provided for completeness and testing.
-    pub fn take_last() -> Option<CimplError> {
+    pub fn take_last() -> Option<Error> {
         LAST_ERROR.with(|prev| prev.borrow_mut().take())
     }
 }
 
-impl std::fmt::Display for CimplError {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl std::error::Error for CimplError {}
+impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
@@ -166,122 +231,147 @@ mod tests {
 
     #[test]
     fn test_error_creation() {
-        let err = CimplError::new(100, "test error");
-        assert_eq!(err.code(), 100);
-        assert_eq!(err.message(), "test error");
+        let err = Error::new("TestError", "test message");
+        assert_eq!(err.message(), "TestError: test message");
+        assert_eq!(err.variant(), Some("TestError"));
+        assert_eq!(err.details(), Some("test message"));
     }
 
     #[test]
     fn test_null_parameter_error() {
-        let err = CimplError::null_parameter("input_ptr");
-        assert_eq!(err.code(), 1);
+        let err = Error::null_parameter("input_ptr");
+        assert_eq!(err.variant(), Some("NullParameter"));
         assert!(err.message().contains("NullParameter"));
-        assert!(err.message().contains("input_ptr"));
+        assert!(err.details().unwrap().contains("input_ptr"));
     }
 
     #[test]
     fn test_string_too_long_error() {
-        let err = CimplError::string_too_long("name");
-        assert_eq!(err.code(), 2);
-        assert!(err.message().contains("StringTooLong"));
-        assert!(err.message().contains("name"));
+        let err = Error::string_too_long("name");
+        assert_eq!(err.variant(), Some("StringTooLong"));
+        assert!(err.details().unwrap().contains("name"));
     }
 
     #[test]
     fn test_untracked_pointer_error() {
-        let err = CimplError::untracked_pointer(0xdeadbeef);
-        assert_eq!(err.code(), 3);
-        assert!(err.message().contains("UntrackedPointer"));
-        assert!(err.message().contains("0xdeadbeef"));
+        let err = Error::untracked_pointer(0xdeadbeef);
+        assert_eq!(err.variant(), Some("UntrackedPointer"));
+        assert!(err.details().unwrap().contains("0xdeadbeef"));
     }
 
     #[test]
     fn test_wrong_pointer_type_error() {
-        let err = CimplError::wrong_pointer_type(0x12345678);
-        assert_eq!(err.code(), 4);
-        assert!(err.message().contains("WrongPointerType"));
-        assert!(err.message().contains("0x12345678"));
+        let err = Error::wrong_pointer_type(0x12345678);
+        assert_eq!(err.variant(), Some("WrongPointerType"));
+        assert!(err.details().unwrap().contains("0x12345678"));
     }
 
     #[test]
     fn test_mutex_poisoned_error() {
-        let err = CimplError::mutex_poisoned();
-        assert_eq!(err.code(), 6);
-        assert!(err.message().contains("MutexPoisoned"));
+        let err = Error::mutex_poisoned();
+        assert_eq!(err.variant(), Some("MutexPoisoned"));
+        assert!(err.details().unwrap().contains("thread panic"));
     }
 
     #[test]
     fn test_invalid_buffer_size_error() {
-        let err = CimplError::invalid_buffer_size(1000, "data");
-        assert_eq!(err.code(), 7);
-        assert!(err.message().contains("InvalidBufferSize"));
-        assert!(err.message().contains("1000"));
-        assert!(err.message().contains("data"));
+        let err = Error::invalid_buffer_size(1000, "data");
+        assert_eq!(err.variant(), Some("InvalidBufferSize"));
+        assert!(err.details().unwrap().contains("1000"));
+        assert!(err.details().unwrap().contains("data"));
     }
 
     #[test]
     fn test_other_error() {
-        let err = CimplError::other("custom message");
-        assert_eq!(err.code(), 5);
-        assert!(err.message().contains("Other"));
-        assert!(err.message().contains("custom message"));
+        let err = Error::other("custom message");
+        assert_eq!(err.variant(), Some("Other"));
+        assert_eq!(err.details(), Some("custom message"));
+    }
+
+    #[test]
+    fn test_from_error() {
+        #[derive(Debug)]
+        enum TestError {
+            Parse(String),
+            Validate,
+        }
+
+        impl std::fmt::Display for TestError {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                match self {
+                    TestError::Parse(s) => write!(f, "parse failed: {}", s),
+                    TestError::Validate => write!(f, "validation failed"),
+                }
+            }
+        }
+
+        impl std::error::Error for TestError {}
+
+        // Test Parse variant
+        let test_err = TestError::Parse("bad input".to_string());
+        let err = Error::from_error(test_err);
+        
+        assert_eq!(err.variant(), Some("Parse"));
+        assert!(err.details().unwrap().contains("parse failed"));
+        
+        // Test Validate variant
+        let test_err2 = TestError::Validate;
+        let err2 = Error::from_error(test_err2);
+        
+        assert_eq!(err2.variant(), Some("Validate"));
+        assert!(err2.details().unwrap().contains("validation failed"));
     }
 
     #[test]
     fn test_last_error_storage() {
         // Set an error
-        let err = CimplError::new(42, "test error");
+        let err = Error::new("TestError", "test message");
         err.set_last();
-        
+
         // Retrieve it
-        assert_eq!(CimplError::last_code(), 42);
-        let msg = CimplError::last_message();
-        assert_eq!(msg, Some("test error".to_string()));
+        let msg = Error::last_message();
+        assert_eq!(msg, Some("TestError: test message".to_string()));
     }
 
     #[test]
     fn test_last_error_none() {
         // Clear any existing error
-        CimplError::take_last();
-        
-        assert_eq!(CimplError::last_code(), 0);
-        assert_eq!(CimplError::last_message(), None);
+        Error::take_last();
+
+        assert_eq!(Error::last_message(), None);
     }
 
     #[test]
     fn test_take_last_clears_error() {
         // Set an error
-        CimplError::new(99, "temporary").set_last();
-        assert_eq!(CimplError::last_code(), 99);
-        
+        Error::new("Temporary", "temp").set_last();
+
         // Take it (should clear)
-        let err = CimplError::take_last();
+        let err = Error::take_last();
         assert!(err.is_some());
-        assert_eq!(err.unwrap().code(), 99);
-        
+        assert_eq!(err.unwrap().variant(), Some("Temporary"));
+
         // Verify it's cleared
-        assert_eq!(CimplError::last_code(), 0);
-        assert_eq!(CimplError::last_message(), None);
+        assert_eq!(Error::last_message(), None);
     }
 
     #[test]
     fn test_display_trait() {
-        let err = CimplError::new(123, "display test");
+        let err = Error::new("DisplayTest", "test message");
         let displayed = format!("{}", err);
-        assert_eq!(displayed, "display test");
+        assert_eq!(displayed, "DisplayTest: test message");
     }
 
     #[test]
     fn test_debug_trait() {
-        let err = CimplError::new(456, "debug test");
+        let err = Error::new("DebugTest", "test message");
         let debugged = format!("{:?}", err);
-        assert!(debugged.contains("456"));
-        assert!(debugged.contains("debug test"));
+        assert!(debugged.contains("DebugTest: test message"));
     }
 
     #[test]
     fn test_error_trait() {
-        let err = CimplError::new(789, "error trait test");
+        let err = Error::new("TraitTest", "test");
         // Verify it implements Error trait
         let _: &dyn std::error::Error = &err;
     }
@@ -289,32 +379,50 @@ mod tests {
     #[test]
     fn test_thread_local_isolation() {
         use std::thread;
-        
+
         // Set error in main thread
-        CimplError::new(1, "main thread").set_last();
-        
+        Error::new("MainThread", "main").set_last();
+
         // Spawn a new thread and verify it has no error
         let handle = thread::spawn(|| {
-            assert_eq!(CimplError::last_code(), 0);
-            CimplError::new(2, "spawned thread").set_last();
-            assert_eq!(CimplError::last_code(), 2);
+            assert_eq!(Error::last_message(), None);
+            Error::new("SpawnedThread", "spawned").set_last();
+            assert!(Error::last_message().is_some());
         });
-        
+
         handle.join().unwrap();
-        
+
         // Main thread should still have its error
-        assert_eq!(CimplError::last_code(), 1);
+        assert!(Error::last_message().unwrap().contains("MainThread"));
     }
 
     #[test]
     fn test_error_overwrite() {
         // Set first error
-        CimplError::new(100, "first").set_last();
-        assert_eq!(CimplError::last_code(), 100);
-        
+        Error::new("First", "first message").set_last();
+
         // Set second error (should overwrite)
-        CimplError::new(200, "second").set_last();
-        assert_eq!(CimplError::last_code(), 200);
-        assert_eq!(CimplError::last_message(), Some("second".to_string()));
+        Error::new("Second", "second message").set_last();
+        
+        let msg = Error::last_message().unwrap();
+        assert!(msg.contains("Second"));
+        assert!(msg.contains("second message"));
+    }
+
+    #[test]
+    fn test_variant_and_details_extraction() {
+        let err = Error::new("MyError", "something went wrong");
+        
+        assert_eq!(err.variant(), Some("MyError"));
+        assert_eq!(err.details(), Some("something went wrong"));
+        assert_eq!(err.message(), "MyError: something went wrong");
+    }
+
+    #[test]
+    fn test_variant_with_colon_in_details() {
+        let err = Error::new("IoError", "file not found: /path/to/file");
+        
+        assert_eq!(err.variant(), Some("IoError"));
+        assert_eq!(err.details(), Some("file not found: /path/to/file"));
     }
 }

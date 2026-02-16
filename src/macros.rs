@@ -74,7 +74,7 @@
 //!
 //! **In production builds** (without `#[cfg(test)]`):
 //! - Leak detection at shutdown still runs (helps catch bugs in integration testing)
-//! - `cimpl_free` errors are still returned (as `-1`) and set via [`crate::CimplError::set_last`]
+//! - `cimpl_free` errors are still returned (as `-1`) and set via [`crate::Error::set_last`]
 //! - No stderr output for individual `cimpl_free` failures (quieter for library usage)
 //! - C code should always check return values and handle errors appropriately
 //!
@@ -242,7 +242,7 @@ macro_rules! deref_or_return {
         match $crate::validate_pointer::<$type>($ptr) {
             Ok(()) => unsafe { &*($ptr as *const $type) },
             Err(e) => {
-                $crate::CimplError::from(e).set_last();
+                $crate::Error::from(e).set_last();
                 return $err_val;
             }
         }
@@ -294,7 +294,7 @@ macro_rules! deref_mut_or_return {
         match $crate::validate_pointer::<$type>($ptr) {
             Ok(()) => unsafe { &mut *($ptr as *mut $type) },
             Err(e) => {
-                $crate::CimplError::from(e).set_last();
+                $crate::Error::from(e).set_last();
                 return $err_val;
             }
         }
@@ -349,7 +349,7 @@ pub const MAX_CSTRING_LEN: usize = 1048576;
 macro_rules! ptr_or_return {
     ($ptr:expr, $err_val:expr) => {
         if $ptr.is_null() {
-            $crate::CimplError::null_parameter(stringify!($ptr).to_string()).set_last();
+            $crate::Error::null_parameter(stringify!($ptr).to_string()).set_last();
             return $err_val;
         }
     };
@@ -363,7 +363,7 @@ macro_rules! cstr_or_return {
     ($ptr:expr, $err_val:expr) => {{
         let ptr = $ptr;
         if ptr.is_null() {
-            $crate::CimplError::null_parameter(stringify!($ptr).to_string()).set_last();
+            $crate::Error::null_parameter(stringify!($ptr).to_string()).set_last();
             return $err_val;
         } else {
             // SAFETY: We create a bounded slice up to MAX_CSTRING_LEN.
@@ -375,7 +375,7 @@ macro_rules! cstr_or_return {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => cstr.to_string_lossy().into_owned(),
                 Err(_) => {
-                    $crate::CimplError::string_too_long(stringify!($ptr).to_string()).set_last();
+                    $crate::Error::string_too_long(stringify!($ptr).to_string()).set_last();
                     return $err_val;
                 }
             }
@@ -391,7 +391,7 @@ macro_rules! cstr_or_return_with_limit {
         let ptr = $ptr;
         let max_len = $max_len;
         if ptr.is_null() {
-            $crate::CimplError::null_parameter(stringify!($ptr).to_string()).set_last();
+            $crate::Error::null_parameter(stringify!($ptr).to_string()).set_last();
             return $err_val;
         } else {
             // SAFETY: We create a bounded slice up to max_len.
@@ -401,7 +401,7 @@ macro_rules! cstr_or_return_with_limit {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => cstr.to_string_lossy().into_owned(),
                 Err(_) => {
-                    $crate::CimplError::string_too_long(stringify!($ptr).to_string()).set_last();
+                    $crate::Error::string_too_long(stringify!($ptr).to_string()).set_last();
                     return $err_val;
                 }
             }
@@ -430,7 +430,7 @@ macro_rules! ok_or_return {
         match $result {
             Ok(value) => $transform(value),
             Err(e) => {
-                $crate::CimplError::from(e).set_last();
+                $crate::Error::from(e).set_last();
                 return $err_val;
             }
         }
@@ -597,7 +597,7 @@ macro_rules! some_or_return_false {
 #[macro_export]
 macro_rules! some_or_return_other_null {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_null!($option, $crate::CimplError::other($msg.to_string()))
+        $crate::some_or_return_null!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
@@ -605,7 +605,7 @@ macro_rules! some_or_return_other_null {
 #[macro_export]
 macro_rules! some_or_return_other_int {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_int!($option, $crate::CimplError::other($msg.to_string()))
+        $crate::some_or_return_int!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
@@ -613,7 +613,7 @@ macro_rules! some_or_return_other_int {
 #[macro_export]
 macro_rules! some_or_return_other_zero {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_zero!($option, $crate::CimplError::other($msg.to_string()))
+        $crate::some_or_return_zero!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
@@ -621,7 +621,7 @@ macro_rules! some_or_return_other_zero {
 #[macro_export]
 macro_rules! some_or_return_other_false {
     ($option:expr, $msg:expr) => {
-        $crate::some_or_return_false!($option, $crate::CimplError::other($msg.to_string()))
+        $crate::some_or_return_false!($option, $crate::Error::other($msg.to_string()))
     };
 }
 
@@ -674,7 +674,7 @@ macro_rules! cstr_option {
             match std::ffi::CStr::from_bytes_until_nul(bytes) {
                 Ok(cstr) => Some(cstr.to_string_lossy().into_owned()),
                 Err(_) => {
-                    $crate::CimplError::string_too_long(stringify!($ptr).to_string()).set_last();
+                    $crate::Error::string_too_long(stringify!($ptr).to_string()).set_last();
                     None
                 }
             }
@@ -768,7 +768,7 @@ macro_rules! bytes_or_return_int {
 ///
 /// # Error Handling
 ///
-/// On error, the error is set via [`crate::CimplError::set_last`] and can be retrieved
+/// On error, the error is set via [`crate::Error::set_last`] and can be retrieved
 /// using error functions. In test mode, errors are also printed to stderr.
 ///
 /// **Best Practice**: Check the return value in production code:
