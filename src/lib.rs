@@ -220,7 +220,3 @@ pub use utils::{
 // Re-export internal utilities (for macro use only - not part of public API)
 #[doc(hidden)]
 pub use utils::validate_pointer;
-
-// Re-export paste for use by our macros
-#[doc(hidden)]
-pub use paste;
