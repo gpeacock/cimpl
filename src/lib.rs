@@ -25,8 +25,21 @@
 //! and let AI generate high-quality bindings for Python, JavaScript, Lua, Ruby, C#, Java, Go, and more.
 //!
 //! ## Why cimpl?
+//! 
+//! This library emerged from real-world challenges with FFI in the [c2pa-rs](https://github.com/contentauth/c2pa-rs) 
+//! project at Adobe. After experimenting with various Rust language binding tools, I found they all required 
+//! decorating Rust code with language-specific annotations or special interface definition languages, generating 
+//! volumes of incomprehensible glue code in the process.
+//! 
+//! Then came the insight: **AI excels at writing bindings for well-documented C APIs**. Rust natively supports 
+//! C APIs, but writing them manually is tricky and error-prone. So cimpl was born - a library of macros and 
+//! utilities that makes it safe and maintainable to write C bindings from Rust.
+//! 
+//! The result? Given this library, AI can generate both the C FFI bindings AND the language-specific bindings 
+//! automatically. The UUID example in this crate was generated entirely by AI in 15 minutes with zero compilation 
+//! errors, proving the concept works in practice.
 //!
-//! Most Rust FFI examples show trivial code. **Real FFI is much harder:**
+//! **Most Rust FFI examples show trivial toy code. Real FFI is much harder:**
 //! - How do you return complex types like strings or structs?
 //! - How do you propagate `Result<T, E>` errors across the FFI boundary?
 //! - How do you handle object lifecycle (constructors, methods, destructors)?
