@@ -1,6 +1,6 @@
 [package]
 name = "cimpl"
-version = "0.3.0"
+version = "0.3.1"
 description = "Simple C implementations from Rust - FFI utilities and macros for creating safe, ergonomic C bindings"
 edition = "2021"
 authors = ["Gavin Peacock <gpeacock@adobe.com>"]

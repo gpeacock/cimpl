@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-16
+
+### Documentation
+
+- Enhanced crate-level documentation with origin story from c2pa-rs development at Adobe
+- Added comprehensive "Why cimpl?" section explaining the AI insight
+- Updated all examples to use current API (thiserror, Error::from_error())
+- Fixed all rustdoc warnings for clean docs.rs build
+- Added links to AI_WORKFLOW.md and PHILOSOPHY.md
+
+### Changed
+
+- Removed unused `paste` dependency (now zero dependencies)
+
 ## [0.3.0] - 2026-02-16
 
 ### Note
