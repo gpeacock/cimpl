@@ -26,7 +26,7 @@
 //!
 //! ## Why cimpl?
 //!
-//! Most Rust FFI examples show trivial toy code. **Real FFI is much harder:**
+//! Most Rust FFI examples show trivial code. **Real FFI is much harder:**
 //! - How do you return complex types like strings or structs?
 //! - How do you propagate `Result<T, E>` errors across the FFI boundary?
 //! - How do you handle object lifecycle (constructors, methods, destructors)?
