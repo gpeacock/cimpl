@@ -208,9 +208,10 @@
 //! }
 //! ```
 
+/// Maximum length for C strings when using bounded conversion (1MB)
+pub const MAX_CSTRING_LEN: usize = 1048576;
+
 // Re-export types/functions that macros need
-#[doc(hidden)]
-#[allow(unused_imports)]
 // May not be directly used but needed for macro expansion
 //pub use crate::utils::validate_pointer;
 
@@ -340,9 +341,6 @@ macro_rules! arc_tracked {
         $crate::track_arc(ptr)
     }};
 }
-
-/// Maximum length for C strings when using bounded conversion (1MB)
-pub const MAX_CSTRING_LEN: usize = 1048576;
 
 /// Check pointer not null or early-return with error value
 #[macro_export]

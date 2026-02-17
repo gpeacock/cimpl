@@ -119,11 +119,11 @@ impl Error {
     /// ```
     pub fn from_error<E: std::error::Error>(e: E) -> Self {
         let debug = format!("{:?}", e);
-        
+
         // Extract variant name from Debug output
         // Works with derived Debug: "Variant", "Variant(data)", "Variant { field }"
         let variant = debug
-            .split(|c| c == '(' || c == '{')
+            .split(['(', '{'])
             .next()
             .and_then(|s| {
                 let trimmed = s.trim();
@@ -310,14 +310,14 @@ mod tests {
         // Test Parse variant
         let test_err = TestError::Parse("bad input".to_string());
         let err = Error::from_error(test_err);
-        
+
         assert_eq!(err.variant(), Some("Parse"));
         assert!(err.details().unwrap().contains("parse failed"));
-        
+
         // Test Validate variant
         let test_err2 = TestError::Validate;
         let err2 = Error::from_error(test_err2);
-        
+
         assert_eq!(err2.variant(), Some("Validate"));
         assert!(err2.details().unwrap().contains("validation failed"));
     }
@@ -403,7 +403,7 @@ mod tests {
 
         // Set second error (should overwrite)
         Error::new("Second", "second message").set_last();
-        
+
         let msg = Error::last_message().unwrap();
         assert!(msg.contains("Second"));
         assert!(msg.contains("second message"));
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn test_variant_and_details_extraction() {
         let err = Error::new("MyError", "something went wrong");
-        
+
         assert_eq!(err.variant(), Some("MyError"));
         assert_eq!(err.details(), Some("something went wrong"));
         assert_eq!(err.message(), "MyError: something went wrong");
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn test_variant_with_colon_in_details() {
         let err = Error::new("IoError", "file not found: /path/to/file");
-        
+
         assert_eq!(err.variant(), Some("IoError"));
         assert_eq!(err.details(), Some("file not found: /path/to/file"));
     }

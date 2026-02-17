@@ -5,7 +5,7 @@ fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let output_file = PathBuf::from(&crate_dir)
         .join("include")
-        .join("secret.h");
+        .join("value_converter.h");
 
     // Create include directory if it doesn't exist
     std::fs::create_dir_all(output_file.parent().unwrap()).unwrap();

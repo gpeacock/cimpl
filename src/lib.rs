@@ -59,7 +59,7 @@
 //! ```
 
 // Declare foundational modules first
-pub mod cimpl_error;
+pub mod error;
 pub mod utils;
 
 // Then macros that depend on them
@@ -67,9 +67,9 @@ pub mod utils;
 pub mod macros;
 
 // Re-export main types and functions for convenience
-pub use cimpl_error::{Error, Result};
+pub use error::{Error, Result};
 // Convenience alias to avoid name conflicts
-pub use cimpl_error::Error as CimplError;
+pub use error::Error as CimplError;
 pub use utils::{
     cimpl_free, safe_slice_from_raw_parts, to_c_bytes, to_c_string, track_arc, track_arc_mutex,
     track_box,

@@ -4,10 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+name = "value_converter"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["ffi"]
+ffi = []
 
 [dependencies]
-cimpl = { path = "../.." }
+cimpl = { path = "../..", optional = false }
+thiserror = "2.0"
 
 [build-dependencies]
 cbindgen = "0.27"

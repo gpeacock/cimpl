@@ -21,11 +21,12 @@
 use std::{
     any::TypeId,
     collections::HashMap,
+    ffi::c_void,
     os::raw::c_uchar,
     sync::{Arc, Mutex},
 };
 
-use crate::cimpl_error::Error;
+use crate::error::Error;
 
 // ============================================================================
 // Pointer Registry - Tracks pointers with their cleanup functions
@@ -63,10 +64,7 @@ impl PointerRegistry {
             return Err(Error::null_parameter("pointer"));
         }
 
-        let tracked = self
-            .tracked
-            .lock()
-            .map_err(|_| Error::mutex_poisoned())?;
+        let tracked = self.tracked.lock().map_err(|_| Error::mutex_poisoned())?;
         match tracked.get(&ptr) {
             Some((actual_type, _)) if *actual_type == expected_type => Ok(()),
             Some(_) => Err(Error::wrong_pointer_type(ptr as u64)),
@@ -81,10 +79,7 @@ impl PointerRegistry {
         }
 
         let mut cleanup = {
-            let mut tracked = self
-                .tracked
-                .lock()
-                .map_err(|_| Error::mutex_poisoned())?;
+            let mut tracked = self.tracked.lock().map_err(|_| Error::mutex_poisoned())?;
             match tracked.remove(&ptr) {
                 Some((_, cleanup)) => cleanup,
                 None => return Err(Error::untracked_pointer(ptr as u64)),
@@ -229,8 +224,7 @@ pub fn validate_pointer<T: 'static>(ptr: *mut T) -> Result<(), Error> {
 ///     // Handle error
 /// }
 /// ```
-#[no_mangle]
-pub extern "C" fn cimpl_free(ptr: *mut std::ffi::c_void) -> i32 {
+pub fn cimpl_free(ptr: *mut c_void) -> i32 {
     match get_registry().free(ptr as usize) {
         Ok(()) => 0,
         Err(error) => {
@@ -308,7 +302,8 @@ pub unsafe fn is_safe_buffer_size(size: usize, ptr: *const c_uchar) -> bool {
 /// - The memory remains valid for the lifetime of the returned slice
 /// - The memory is not mutated while the slice exists
 /// - `len` does not exceed the actual size of the allocated memory
-/// Creates a safe slice from raw parts with bounds validation
+///
+///   Creates a safe slice from raw parts with bounds validation
 ///
 /// # Arguments
 /// * `ptr` - Pointer to the data
@@ -396,7 +391,7 @@ pub fn to_c_bytes(bytes: Vec<u8>) -> *const c_uchar {
         Box::new(move || {
             unsafe {
                 // Reconstruct the slice with the original length
-                drop(Box::from_raw(std::slice::from_raw_parts_mut(
+                drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
                     ptr_val as *mut u8,
                     len,
                 )))
@@ -420,11 +415,11 @@ mod tests {
         assert!(!c_string.is_null());
 
         // First free should succeed
-        let result1 = cimpl_free(c_string as *mut std::ffi::c_void);
+        let result1 = cimpl_free(c_string as *mut c_void);
         assert_eq!(result1, 0);
 
         // Second free should be detected and return error
-        let result2 = cimpl_free(c_string as *mut std::ffi::c_void);
+        let result2 = cimpl_free(c_string as *mut c_void);
         assert_eq!(result2, -1);
     }
 
@@ -436,7 +431,7 @@ mod tests {
         assert!(!c_string.is_null());
 
         // Clean up
-        cimpl_free(c_string as *mut std::ffi::c_void);
+        cimpl_free(c_string as *mut c_void);
     }
 
     #[test]
@@ -447,7 +442,7 @@ mod tests {
         assert!(!ptr.is_null());
 
         // Clean up
-        cimpl_free(ptr as *mut std::ffi::c_void);
+        cimpl_free(ptr as *mut c_void);
     }
 
     #[test]
@@ -464,7 +459,7 @@ mod tests {
         let empty = "".to_string();
         let c_string = to_c_string(empty);
         assert!(!c_string.is_null());
-        cimpl_free(c_string as *mut std::ffi::c_void);
+        cimpl_free(c_string as *mut c_void);
     }
 
     #[test]
@@ -472,7 +467,7 @@ mod tests {
         let empty_bytes: Vec<u8> = vec![];
         let ptr = to_c_bytes(empty_bytes);
         assert!(!ptr.is_null());
-        cimpl_free(ptr as *mut std::ffi::c_void);
+        cimpl_free(ptr as *mut c_void);
     }
 
     #[test]
@@ -480,19 +475,19 @@ mod tests {
         struct TestStruct {
             value: i32,
         }
-        
+
         let test = TestStruct { value: 42 };
         let ptr = track_box(Box::into_raw(Box::new(test)));
         assert!(!ptr.is_null());
-        
+
         // Verify we can read it back
         unsafe {
             let test_ref = &*ptr;
             assert_eq!(test_ref.value, 42);
         }
-        
+
         // Clean up
-        cimpl_free(ptr as *mut std::ffi::c_void);
+        cimpl_free(ptr as *mut c_void);
     }
 
     #[test]
@@ -500,23 +495,23 @@ mod tests {
         let value = Box::new(123i32);
         let ptr = track_box(Box::into_raw(value));
         assert!(!ptr.is_null());
-        
+
         unsafe {
             assert_eq!(*ptr, 123);
         }
-        
-        cimpl_free(ptr as *mut std::ffi::c_void);
+
+        cimpl_free(ptr as *mut c_void);
     }
 
     #[test]
     fn test_validate_pointer_with_valid_pointer() {
         let value = Box::new(456i32);
         let ptr = track_box(Box::into_raw(value));
-        
+
         let result = validate_pointer::<i32>(ptr);
         assert!(result.is_ok());
-        
-        cimpl_free(ptr as *mut std::ffi::c_void);
+
+        cimpl_free(ptr as *mut c_void);
     }
 
     #[test]
@@ -531,14 +526,16 @@ mod tests {
     fn test_validate_pointer_with_untracked() {
         let value = Box::new(789i32);
         let ptr = Box::into_raw(value); // Not tracked!
-        
+
         let result = validate_pointer::<i32>(ptr);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.variant(), Some("UntrackedPointer"));
-        
+
         // Clean up untracked pointer
-        unsafe { let _ = Box::from_raw(ptr); }
+        unsafe {
+            let _ = Box::from_raw(ptr);
+        }
     }
 
     #[test]
@@ -546,7 +543,7 @@ mod tests {
         let data = vec![1u8, 2, 3, 4, 5];
         let ptr = data.as_ptr();
         let len = data.len();
-        
+
         let result = unsafe { safe_slice_from_raw_parts(ptr, len, "test_data") };
         assert!(result.is_ok());
         let slice = result.unwrap();
@@ -565,7 +562,7 @@ mod tests {
     fn test_safe_slice_from_raw_parts_invalid_size() {
         let data = vec![1u8, 2, 3];
         let ptr = data.as_ptr();
-        
+
         // Request usize::MAX which should trigger overflow
         let result = unsafe { safe_slice_from_raw_parts(ptr, usize::MAX, "overflow_test") };
         assert!(result.is_err());
@@ -576,31 +573,31 @@ mod tests {
     #[test]
     fn test_arc_tracked() {
         use std::sync::Arc;
-        
+
         let value = Arc::new(100i32);
         let ptr = track_arc(Arc::into_raw(value) as *mut i32);
         assert!(!ptr.is_null());
-        
+
         unsafe {
             assert_eq!(*ptr, 100);
         }
-        
-        cimpl_free(ptr as *mut std::ffi::c_void);
+
+        cimpl_free(ptr as *mut c_void);
     }
 
     #[test]
     fn test_arc_mutex_tracked() {
         use std::sync::{Arc, Mutex};
-        
+
         let value = Arc::new(Mutex::new(200i32));
         let ptr = track_arc_mutex(Arc::into_raw(value) as *mut Mutex<i32>);
         assert!(!ptr.is_null());
-        
+
         unsafe {
             let guard = (*ptr).lock().unwrap();
             assert_eq!(*guard, 200);
         }
-        
-        cimpl_free(ptr as *mut std::ffi::c_void);
+
+        cimpl_free(ptr as *mut c_void);
     }
 }

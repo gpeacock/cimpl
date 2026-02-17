@@ -26,8 +26,8 @@ Languages evolve. FFI libraries come and go. Tooling breaks and gets fixed. But 
 │                                                              │
 │  • Clean, documented C header                                │
 │  • Standard C conventions (NULL = error, -1 = error)        │
-│  • Error codes for programmatic handling                     │
-│  • Universal cimpl_free() for all allocations               │
+│  • String-based error messages ("VariantName: details")     │
+│  • Library-specific *_free() wrapping cimpl::cimpl_free()   │
 │  • This layer NEVER needs to change                         │
 └──────────────────────┬───────────────────────────────────────┘
                        │ Language-specific FFI (or AI codegen)
@@ -71,10 +71,11 @@ When a language's FFI tooling has issues:
 ### 3. AI-Friendly Code Generation
 
 The C API layer is perfect for AI code generation because:
-- **Consistent patterns**: NULL = error, error codes, free functions
+- **Consistent patterns**: NULL = error, string error messages, free functions
 - **Rich documentation**: Doxygen comments in generated headers
 - **Simple types**: Pointers, integers, strings
 - **Standard conventions**: Decades of C API examples in training data
+- **Parseable errors**: `"VariantName: details"` format easily converts to typed exceptions
 
 An AI can read your generated C header and produce high-quality bindings for almost any language with minimal guidance.
 
@@ -98,7 +99,7 @@ pub extern "C" fn unsafe_function(ptr: *mut T) -> i32 {
 // ✅ Do this (cimpl macros)
 #[no_mangle]
 pub extern "C" fn safe_function(ptr: *mut T) -> i32 {
-    let obj = deref_mut_or_return_neg!(ptr, T);
+    let obj = deref_mut_or_return_int!(ptr, T);
     // ... safe code
     0
 }
@@ -121,63 +122,93 @@ Follow established C patterns that developers expect:
 
 **Error details are retrieved conditionally:**
 ```c
-Uuid* uuid = uuid_parse("invalid");
-if (uuid == NULL) {  // ← Check return value FIRST
+ValueConverter* vc = vc_from_hex("invalid");
+if (vc == NULL) {  // ← Check return value FIRST
     // NOW check error details
-    int code = uuid_error_code();
-    char* msg = uuid_last_error();
-    fprintf(stderr, "Error %d: %s\n", code, msg);
-    cimpl_free(msg);
+    char* msg = vc_last_error();  // "InvalidHex: invalid byte: in"
+    fprintf(stderr, "Error: %s\n", msg);
+    vc_free(msg);
 }
 ```
 
 **Never check error details without a failure indication.**
 
-### 3. Universal Free Function
+### 3. Namespace-Safe Free Functions
 
-One `cimpl_free()` to rule them all:
+Each library wraps `cimpl::cimpl_free()` with its own prefix:
 
 ```c
-Uuid* uuid = uuid_new_v4();
-char* str = uuid_to_string(uuid);
-uint8_t* bytes = uuid_as_bytes(uuid);
+ValueConverter* vc = vc_from_i32(42);
+char* hex = vc_to_hex(vc);
+uint8_t* bytes = vc_to_bytes(vc, &len);
 
-cimpl_free(bytes);  // Free the byte array
-cimpl_free(str);    // Free the string
-cimpl_free(uuid);   // Free the UUID object
+vc_free(bytes);  // Free the byte array
+vc_free(hex);    // Free the string
+vc_free(vc);     // Free the object
 ```
 
 Benefits:
-- Simple mental model
-- No per-type free functions needed
-- Works with any tracked pointer
-- Double-free protection built-in
+- **Namespace safety**: No symbol conflicts when linking multiple libraries
+- **Clear ownership**: `vc_free()` makes it obvious which library allocated it
+- **Shared registry**: Under the hood, all cimpl libraries share the same tracking
+- **Double-free protection** built-in
 
-### 4. Error Codes + Messages
-
-Provide both machine-readable codes and human-readable messages:
-
-```c
-// Error codes (0-99 = cimpl infrastructure, 100+ = library-specific)
-extern const int32_t ERROR_OK;
-extern const int32_t ERROR_NULL_PARAMETER;
-extern const int32_t ERROR_UUID_PARSE_ERROR;
-
-// Error retrieval functions
-int32_t uuid_error_code(void);    // For programmatic handling
-char* uuid_last_error(void);      // For human readers
-void uuid_clear_error(void);      // Reset error state
+**Important:** `cimpl::cimpl_free()` is a Rust function (not `#[no_mangle]`). Libraries must wrap it:
+```rust
+#[no_mangle]
+pub extern "C" fn vc_free(ptr: *mut c_void) -> i32 {
+    cimpl::cimpl_free(ptr)
+}
 ```
 
-Error messages include the error name:
+### 4. String-Based Errors
+
+Provide descriptive error messages in a parseable format:
+
+```rust
+// Your library's error type with thiserror
+#[derive(ThisError, Debug)]
+pub enum Error {
+    #[error("invalid hex: {0}")]
+    InvalidHex(String),
+    
+    #[error("buffer too large: got {got} bytes, max {max}")]
+    BufferTooLarge { got: usize, max: usize },
+}
+
+// Automatic conversion to cimpl::Error
+impl From<Error> for cimpl::Error {
+    fn from(e: Error) -> Self {
+        cimpl::Error::from_error(e)  // Uses Debug for variant, Display for message
+    }
+}
+
+// Or manual control
+impl From<Error> for cimpl::Error {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::InvalidHex(s) => cimpl::Error::new("InvalidHex", s),
+            Error::BufferTooLarge { got, max } => 
+                cimpl::Error::new("BufferTooLarge", format!("got {} bytes, max {}", got, max)),
+        }
+    }
+}
 ```
-"ParseError: invalid character: expected [0-9a-fA-F], found 'z'"
+
+Error format: `"VariantName: details"`
+
+Examples:
+```
+"InvalidHex: invalid byte: ZZ"
+"BufferTooLarge: got 9 bytes, max 8"
+"OutOfRange: need exactly 4 bytes for i32, got 2"
 ```
 
 This format is:
-- ✅ Human-readable (developers)
-- ✅ Machine-parseable (error handlers)
-- ✅ AI-friendly (code generation)
+- ✅ Human-readable (developers can read it)
+- ✅ Machine-parseable (split on `": "` to get variant and details)
+- ✅ AI-friendly (easy to convert to typed exceptions)
+- ✅ Cross-language (works in C, C++, Python, Swift, Kotlin, Go - proven in production)
 
 ### 5. Transparent Handle Design
 
@@ -212,60 +243,96 @@ pub extern "C" fn thread_safe_create() -> *mut ThreadSafeState {
 You can expose **any** Rust crate through `cimpl`, even ones you don't control:
 
 ```rust
-// External crate's type (uuid::Uuid)
-use uuid::Uuid;
+// lib.rs - Pure Rust API
+pub struct ValueConverter {
+    data: Vec<u8>,
+}
 
-// Use it directly in FFI - no wrapper needed!
-#[no_mangle]
-pub extern "C" fn uuid_new_v4() -> *mut Uuid {
-    box_tracked!(Uuid::new_v4())
+impl ValueConverter {
+    pub fn from_i32(value: i32) -> Self { /* ... */ }
+    pub fn to_string(&self) -> Result<String, Error> { /* ... */ }
+}
+
+// ffi.rs - C FFI wrapper
+use crate::{ValueConverter, Error};
+use cimpl::*;
+
+impl From<Error> for cimpl::Error {
+    fn from(e: Error) -> Self {
+        cimpl::Error::from_error(e)
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn uuid_to_string(uuid: *mut Uuid) -> *mut c_char {
-    let obj = deref_or_return_null!(uuid, Uuid);
-    to_c_string(obj.to_string())
+pub extern "C" fn vc_from_i32(value: i32) -> *mut ValueConverter {
+    box_tracked!(ValueConverter::from_i32(value))
+}
+
+#[no_mangle]
+pub extern "C" fn vc_to_string(vc: *mut ValueConverter) -> *mut c_char {
+    let converter = deref_or_return_null!(vc, ValueConverter);
+    let result = ok_or_return_null!(converter.to_string());
+    to_c_string(result)
 }
 ```
 
 The external type is already opaque to C, so `cbindgen` will generate:
 ```c
-typedef struct Uuid Uuid;  // Opaque forward declaration
+typedef struct vc_ValueConverter vc_ValueConverter;  // Opaque forward declaration
 ```
 
 Perfect!
 
-### Error Mapping Tables
+### Error Conversion Pattern
 
-Map library errors to C error codes declaratively:
+Convert library errors to cimpl::Error for FFI:
 
+**Automatic (Recommended with thiserror):**
 ```rust
-// 1. Declare error code constants (cbindgen sees these)
-#[no_mangle]
-pub static ERROR_UUID_PARSE_ERROR: i32 = 100;
+use thiserror::Error as ThisError;
 
-// 2. Create error mapper function
-fn map_uuid_error(_e: &uuid::Error) -> (i32, &'static str) {
-    (ERROR_UUID_PARSE_ERROR, "ParseError")
+#[derive(ThisError, Debug)]
+pub enum Error {
+    #[error("invalid format: {0}")]
+    InvalidFormat(String),
+    
+    #[error("out of range: {0}")]
+    OutOfRange(String),
 }
 
-// 3. Register the mapper
-const ERROR_MAPPER: fn(&uuid::Error) -> (i32, &'static str) = map_uuid_error;
+// One-line conversion!
+impl From<Error> for cimpl::Error {
+    fn from(e: Error) -> Self {
+        cimpl::Error::from_error(e)
+    }
+}
 
-// 4. Use in FFI functions (automatic conversion!)
+// Use in FFI - automatic conversion via From trait
 #[no_mangle]
-pub extern "C" fn uuid_parse(s: *const c_char) -> *mut Uuid {
-    let s_str = cstr_or_return_null!(s);
-    let uuid = ok_or_return_null!(Uuid::from_str(&s_str));
-    box_tracked!(uuid)
+pub extern "C" fn vc_from_hex(hex: *const c_char) -> *mut ValueConverter {
+    let hex_str = cstr_or_return_null!(hex);
+    let converter = ok_or_return_null!(ValueConverter::from_hex(&hex_str));
+    box_tracked!(converter)
 }
 ```
 
 The macro automatically:
 - Checks if the Result is Ok
-- On Err, looks up the error in the table
-- Sets the thread-local error with the right code and message
+- On Err, converts via `From` trait
+- Sets the thread-local error message
 - Returns NULL
+
+**Manual (for custom control):**
+```rust
+impl From<Error> for cimpl::Error {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::InvalidFormat(s) => cimpl::Error::new("InvalidFormat", s),
+            Error::OutOfRange(s) => cimpl::Error::new("OutOfRange", s),
+        }
+    }
+}
+```
 
 ### Memory Management Patterns
 
@@ -289,7 +356,7 @@ pub extern "C" fn create_object() -> *mut MyObject {
 }
 ```
 
-All tracked allocations can be freed with `cimpl_free()`.
+All tracked allocations can be freed with library-specific `*_free()` functions that wrap `cimpl::cimpl_free()`.
 
 ## What Makes a Good C API?
 
@@ -297,10 +364,10 @@ All tracked allocations can be freed with `cimpl_free()`.
 
 ```c
 // ✅ Good: Simple, obvious functions
-Uuid* uuid_new_v4(void);
-char* uuid_to_string(Uuid* uuid);
-bool uuid_is_nil(Uuid* uuid);
-void uuid_free(Uuid* uuid);  // Or just use cimpl_free()
+ValueConverter* vc_new_v4(void);
+char* vc_to_string(ValueConverter* vc);
+bool vc_is_empty(ValueConverter* vc);
+void vc_free(void* ptr);  // Wraps cimpl::cimpl_free()
 ```
 
 ### DON'T: Over-engineer
@@ -316,34 +383,36 @@ size_t uuid_to_string_buf(UuidHandle* h, char* buf, size_t len, uint32_t flags);
 Use Doxygen-style comments that `cbindgen` will include:
 
 ```rust
-/// Creates a new random UUID (version 4).
+/// Creates a new ValueConverter from a signed 32-bit integer.
 ///
-/// Returns NULL if random number generation fails.
-/// The returned UUID must be freed with `cimpl_free()`.
+/// Returns NULL if allocation fails.
+/// The returned pointer must be freed with `vc_free()`.
 ///
 /// # Example
 /// ```c
-/// Uuid* uuid = uuid_new_v4();
-/// if (uuid == NULL) {
-///     fprintf(stderr, "Failed to generate UUID\n");
+/// ValueConverter* vc = vc_from_i32(42);
+/// if (vc == NULL) {
+///     fprintf(stderr, "Failed to create converter\n");
 ///     return -1;
 /// }
-/// cimpl_free(uuid);
+/// vc_free(vc);
 /// ```
 #[no_mangle]
-pub extern "C" fn uuid_new_v4() -> *mut Uuid {
-    box_tracked!(Uuid::new_v4())
+pub extern "C" fn vc_from_i32(value: i32) -> *mut ValueConverter {
+    box_tracked!(ValueConverter::from_i32(value))
 }
 ```
 
 ### DO: Provide Error Context
 
 ```c
-// ✅ Good: Rich error information
-extern const int32_t ERROR_PARSE_ERROR;     // For code
-int32_t uuid_error_code(void);              // Get code
-char* uuid_last_error(void);                // Get message
-void uuid_clear_error(void);                // Reset
+// ✅ Good: Descriptive error messages in parseable format
+char* vc_last_error(void);  // Returns "VariantName: details"
+
+// Example errors:
+// "InvalidHex: invalid byte: ZZ"
+// "BufferTooLarge: got 9 bytes, max 8"
+// "OutOfRange: need exactly 4 bytes for i32, got 2"
 ```
 
 ### DON'T: Throw Exceptions or Panic
@@ -378,14 +447,21 @@ Python's `ctypes` is built-in and works great:
 from ctypes import *
 
 # Load library
-lib = CDLL("./libmylib.so")
+lib = CDLL("./libvalue_converter.so")
 
 # Define functions
-lib.uuid_new_v4.restype = c_void_p
-lib.uuid_new_v4.argtypes = []
+lib.vc_from_i32.restype = c_void_p
+lib.vc_from_i32.argtypes = [c_int32]
+
+lib.vc_last_error.restype = c_char_p
+lib.vc_last_error.argtypes = []
 
 # Call
-uuid_ptr = lib.uuid_new_v4()
+vc_ptr = lib.vc_from_i32(42)
+if not vc_ptr:
+    error = lib.vc_last_error().decode('utf-8')
+    variant, _, details = error.partition(': ')
+    print(f"Error {variant}: {details}")
 ```
 
 Wrap in Python classes for idiomatic APIs.
@@ -397,10 +473,11 @@ Use Koffi (not ffi-napi, which is unmaintained):
 ```javascript
 const koffi = require('koffi');
 
-const lib = koffi.load('./libmylib.dylib');
-const UuidPtr = koffi.pointer(koffi.opaque('Uuid'));
+const lib = koffi.load('./libvalue_converter.dylib');
+const VCPtr = koffi.pointer(koffi.opaque('vc_ValueConverter'));
 
-const uuid_new_v4 = lib.func('uuid_new_v4', UuidPtr, []);
+const vc_from_i32 = lib.func('vc_from_i32', VCPtr, ['int32']);
+const vc_free = lib.func('vc_free', 'int', ['void *']);
 ```
 
 ### Lua (LuaJIT FFI)
@@ -411,13 +488,13 @@ LuaJIT's FFI is amazing:
 local ffi = require("ffi")
 
 ffi.cdef[[
-    typedef struct Uuid Uuid;
-    Uuid* uuid_new_v4(void);
-    void cimpl_free(void* ptr);
+    typedef struct vc_ValueConverter vc_ValueConverter;
+    vc_ValueConverter* vc_from_i32(int32_t value);
+    void vc_free(void* ptr);
 ]]
 
-local lib = ffi.load("mylib")
-local uuid = lib.uuid_new_v4()
+local lib = ffi.load("value_converter")
+local vc = lib.vc_from_i32(42)
 ```
 
 ### Ruby (FFI gem)
@@ -425,11 +502,12 @@ local uuid = lib.uuid_new_v4()
 ```ruby
 require 'ffi'
 
-module MyLib
+module ValueConverter
   extend FFI::Library
-  ffi_lib './libmylib.so'
+  ffi_lib './libvalue_converter.so'
   
-  attach_function :uuid_new_v4, [], :pointer
+  attach_function :vc_from_i32, [:int32], :pointer
+  attach_function :vc_free, [:pointer], :int
 end
 ```
 

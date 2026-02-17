@@ -18,17 +18,25 @@ Write your library once in safe Rust, expose it through a clean C API, and let A
 
 ## Why cimpl?
 
-**Traditional FFI is hard:**
-- Manual memory management
-- Unsafe pointer handling
-- Complex error propagation
-- Language-specific bindings for each target
+Most Rust FFI examples show trivial toy code:
+```rust
+#[no_mangle]
+pub extern "C" fn add(a: i32, b: i32) -> i32 { a + b }
+```
 
-**cimpl makes it simple:**
+**Real FFI is much harder:**
+- How do you return complex types like strings or structs?
+- How do you propagate Result<T, E> errors across the FFI boundary?
+- How do you handle object lifecycle (constructors, methods, destructors)?
+- How do you prevent memory leaks and double-frees?
+- How do you make errors usable in other languages?
+
+**cimpl solves the hard problems:**
 - ✅ Type-safe pointer tracking with validation
-- ✅ Automatic error handling with descriptive messages
-- ✅ Memory leak detection
-- ✅ Clean macros for common patterns
+- ✅ Automatic error handling with descriptive, parseable messages
+- ✅ Memory leak detection in tests
+- ✅ Clean macros for production patterns (not toy examples)
+- ✅ Object-oriented APIs (structs with methods, not just functions)
 - ✅ AI-friendly C headers (auto-generated via cbindgen)
 - ✅ One codebase → many language bindings
 
@@ -38,103 +46,110 @@ Write your library once in safe Rust, expose it through a clean C API, and let A
 
 ```rust
 use cimpl::*;
-use std::str::FromStr;
+use std::ffi::c_void;
+use std::os::raw::c_char;
+use thiserror::Error as ThisError;
 
-// Your library's error type
+// Your library's error type (using thiserror for convenience)
+#[derive(ThisError, Debug)]
 pub enum Error {
-    ParseError(String),
+    #[error("value out of range: {0}")]
+    OutOfRange(String),
+    
+    #[error("invalid UTF-8: {0}")]
+    InvalidUtf8(String),
 }
 
-// Map to cimpl::Error for FFI
+// Map to cimpl::Error for FFI - one line with from_error()!
 impl From<Error> for cimpl::Error {
     fn from(e: Error) -> Self {
-        match e {
-            Error::ParseError(s) => cimpl::Error::new("ParseError", s),
-        }
+        cimpl::Error::from_error(e)  // Automatic: Debug → variant, Display → message
     }
 }
 
 // Clean, safe FFI function
 #[no_mangle]
-pub extern "C" fn uuid_parse(s: *const c_char) -> *mut uuid::Uuid {
-    let s_str = cstr_or_return_null!(s);
-    
-    let uuid = ok_or_return_null!(
-        uuid::Uuid::from_str(&s_str)
-            .map_err(|e| Error::ParseError(e.to_string()))
-    );
-    
-    box_tracked!(uuid)
+pub extern "C" fn vc_to_string(value: *mut ValueConverter) -> *mut c_char {
+    let converter = deref_or_return_null!(value, ValueConverter);
+    let result = ok_or_return_null!(converter.to_string());  // Error → cimpl::Error automatically
+    to_c_string(result)
+}
+
+// Memory management wrapper (required for namespace safety)
+#[no_mangle]
+pub extern "C" fn vc_free(ptr: *mut c_void) -> i32 {
+    cimpl::cimpl_free(ptr)  // Rust-level function, wrap in your C API
 }
 ```
 
 **That's it!** From this simple code:
-- cbindgen generates a C header
+- cbindgen generates a C header with proper namespace prefix
 - Type validation ensures safety
-- Errors map to descriptive strings ("ErrorName details")
+- Errors map to descriptive strings: `"VariantName: details"`
 - Memory is tracked automatically
 - AI can generate bindings for any language
 
-**Want to wrap an existing crate?** See [AI_WORKFLOW.md](./AI_WORKFLOW.md) for step-by-step instructions on using AI to generate FFI wrappers and language bindings.
+**AI Users:** See [AI_WORKFLOW.md](./AI_WORKFLOW.md) for a complete guide to generating FFI wrappers and language bindings with proper macro usage patterns.
 
 ## What You Get
 
 ### From Rust to C
 ```c
-Uuid* uuid = uuid_parse("550e8400-e29b-41d4-a716-446655440000");
-if (uuid == NULL) {
-    char* msg = uuid_last_error(); // "ParseError: invalid character..."
+#include "value_converter.h"
+
+// Create from integer
+ValueConverter* vc = vc_from_i32(42);
+if (vc == NULL) {
+    char* msg = vc_last_error();  // "OutOfRange: need exactly 4 bytes..."
     printf("Error: %s\n", msg);
-    uuid_free(msg);
+    vc_free(msg);
     return -1;
 }
-uuid_free(uuid);
+
+// Convert to hex
+char* hex = vc_to_hex(vc);
+printf("Hex: %s\n", hex);  // "2a000000"
+
+// Cleanup (namespace-safe free function)
+vc_free(hex);
+vc_free(vc);
 ```
 
 ### From C to Python (auto-generated!)
 ```python
-from uuid_py import Uuid, ParseError
+from value_converter import ValueConverter, OutOfRangeError
 
 try:
-    uuid = Uuid.parse("550e8400-e29b-41d4-a716-446655440000")
-    print(uuid)
-except ParseError as e:
-    print(f"Error: {e.message}")
-```
-
-### From C to Lua (auto-generated!)
-```lua
-local uuid = require("uuid")
-local ok, result = pcall(function()
-    return uuid.parse("550e8400-e29b-41d4-a716-446655440000")
-end)
-if ok then
-    print(result)
-else
-    print("Error: " .. result)
-end
+    with ValueConverter.from_i32(42) as vc:
+        print(vc.to_hex())  # "2a000000"
+except OutOfRangeError as e:
+    print(f"Error: {e}")
 ```
 
 ## Features
 
 ### Pointer Safety
 - **Tracked pointers** with type validation
-- **Universal `cimpl_free()`** works on any tracked pointer
+- **Rust-level `cimpl::cimpl_free()`** function (wrap with `{crate}_free` in your C API)
+- **Shared registry** across all cimpl-based libraries
 - **Double-free protection**
 - **Type mismatch detection**
 
 ### Error Handling
-- **String-based error messages** with consistent "ErrorName details" format
+- **String-based error messages** with consistent `"VariantName: details"` format
 - **AI-friendly format**: Easy to parse and convert to typed exceptions
-- **Automatic conversion** via `From` trait
-- **Standard C conventions**: NULL/-1 indicates error, call `last_error()` for details
+- **Automatic conversion** via `cimpl::Error::from_error()` or manual with `cimpl::Error::new()`
+- **Works with thiserror**: Use `#[derive(ThisError)]` for ergonomic error definitions
+- **Standard C conventions**: NULL/false/-1 indicates error, call `*_last_error()` for details
 
 ### Clean Macros
 - `box_tracked!()` - Allocate and track Box
+- `ptr_or_return!()` - Null pointer checks with automatic error messages
+- `bytes_or_return_*!()` - Byte array validation with bounds checking
 - `cstr_or_return_*!()` - C string conversion with null checks
 - `deref_or_return_*!()` - Pointer validation and dereferencing
 - `ok_or_return_*!()` - Result unwrapping with automatic error conversion
-- String-based error handling for clean, flexible error messages
+- `option_to_c_string!()` - Option to C string (NULL if None)
 
 ## Getting Started
 
@@ -143,26 +158,40 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 cimpl = "0.1"
+thiserror = "2.0"  # Recommended for ergonomic errors
 
 [build-dependencies]
 cbindgen = "0.27"
 ```
 
+### For AI Users
+
+**Read [AI_WORKFLOW.md](./AI_WORKFLOW.md) first!** It contains:
+- Pre-flight checklist for catching anti-patterns
+- Complete macro reference with decision trees
+- Common mistakes to avoid
+- Step-by-step guidance for generating FFI code
+
 ### Example
 
-**[examples/reference/](./examples/reference/)** - Comprehensive reference implementation demonstrating all cimpl patterns:
-- String parameters and returns (C ↔ Rust)
-- Byte arrays with safe handling
-- Result<T, E> with custom error enums
-- Option<T> for nullable values
-- Struct lifecycle (create, modify, query, destroy)
-- Error handling and propagation
-- Memory management with tracked allocations
-- Includes Python bindings showing idiomatic error handling
+**[examples/reference/](./examples/reference/)** - Production-ready reference implementation
 
-The example implements a "secret message processor" with various encoding/decoding operations (ROT13, hex, validation, statistics) to exercise all FFI patterns without external dependencies.
+**This is not a toy example.** Unlike the typical `add(a, b)` FFI tutorials, this demonstrates the hard parts:
 
-See [examples/reference/README.md](./examples/reference/README.md) for detailed API reference and usage patterns.
+- ✅ **Real-world utility**: Value converter for type conversion (i32, u32, i64, u64, bytes, strings, hex)
+- ✅ **Multiple constructors**: `from_i32()`, `from_string()`, `from_hex()`, etc.
+- ✅ **Fallible conversions**: `to_i32()` might fail (wrong size), `to_string()` might fail (invalid UTF-8)
+- ✅ **Proper validation**: Size limits, UTF-8 checks, overflow detection
+- ✅ **Memory safety**: Tracked allocations, type validation, leak detection
+- ✅ **Clear separation**: `lib.rs` (pure Rust API) vs `ffi.rs` (C FFI wrapper)
+
+**Two-file structure:**
+- `src/lib.rs` - Standard Rust library (no FFI concerns)
+- `src/ffi.rs` - C FFI wrapper using cimpl
+
+This shows how to add FFI to an existing Rust library, not how to write FFI from scratch.
+
+See [examples/reference/README.md](./examples/reference/README.md) for detailed API reference.
 
 ## Real-World Use
 
