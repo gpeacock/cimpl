@@ -37,9 +37,19 @@
 //! 
 //! The result? Given this library, AI can generate both the C FFI bindings AND the language-specific bindings 
 //! automatically. The UUID example in this crate was generated entirely by AI in 15 minutes with zero compilation 
-//! errors, proving the concept works in practice.
+//! errors, proving the concept works in practice. Look at the code. Everything generated, from the C header files to
+//! to language bindings is well documented and readable. There is no incomprehensible glue code. 
+//! 
+//! Look at the examples in the `examples` directory. They are real-world examples of how to use cimpl to write
+//! safe and maintainable C bindings. The UUID example was generated entirely by AI in 15 minutes with zero compilation
+//! errors. The ValueConverter example shows patterns and how to use them.
+//! 
+//! ## Why cimpl?
 //!
-//! **Most Rust FFI examples show trivial toy code. Real FFI is much harder:**
+//! This library emerged from real-world challenges with FFI in the [c2pa-rs](https://github.com/contentauth/c2pa-rs) 
+//! project at Adobe. After experimenting with various Rust language binding tools, I found they all required 
+//! decorating Rust code with language-specific annotations or special interface definition languages, generating 
+//! **Most Rust FFI examples are way to simple to be useful. Real FFI is much harder:**
 //! - How do you return complex types like strings or structs?
 //! - How do you propagate `Result<T, E>` errors across the FFI boundary?
 //! - How do you handle object lifecycle (constructors, methods, destructors)?
