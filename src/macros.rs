@@ -758,11 +758,11 @@ macro_rules! bytes_or_return_int {
 
 /// Free a pointer that was allocated by cimpl.
 ///
-/// This is a convenience macro wrapper around `cimpl_free` (see [`crate::cimpl_free`]).
+/// This is a convenience macro wrapper around `cimpl_free` (see [`crate::cimpl_free()`]).
 ///
 /// # Returns
 /// - `0` on success
-/// - `-1` on error (see [`crate::cimpl_free`] for details)
+/// - `-1` on error (see [`crate::cimpl_free()`] for details)
 ///
 /// # Error Handling
 ///
