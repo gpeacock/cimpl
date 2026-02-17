@@ -6,7 +6,9 @@ Create clean, safe C FFI bindings that AI can automatically convert to any langu
 
 [![Crates.io](https://img.shields.io/crates/v/cimpl.svg)](https://crates.io/crates/cimpl)
 [![Documentation](https://docs.rs/cimpl/badge.svg)](https://docs.rs/cimpl)
-[![License](https://img.shields.io/crates/l/cimpl.svg)](LICENSE)
+[![License](https://img.shields.io/crates/l/cimpl.svg)](LICENSE-MIT)
+
+> **Note:** This is a new project (v0.3.0+) taking over the `cimpl` crate name. Previous versions (0.1.x, 0.2.0) were a different, unrelated project and have been yanked.
 
 ## The Vision
 
