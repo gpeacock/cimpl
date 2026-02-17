@@ -44,12 +44,7 @@
 //! safe and maintainable C bindings. The UUID example was generated entirely by AI in 15 minutes with zero compilation
 //! errors. The ValueConverter example shows patterns and how to use them.
 //! 
-//! ## Why cimpl?
-//!
-//! This library emerged from real-world challenges with FFI in the [c2pa-rs](https://github.com/contentauth/c2pa-rs) 
-//! project at Adobe. After experimenting with various Rust language binding tools, I found they all required 
-//! decorating Rust code with language-specific annotations or special interface definition languages, generating 
-//! **Most Rust FFI examples are way to simple to be useful. Real FFI is much harder:**
+//! **Most Rust FFI examples are trivial. Real FFI is much harder:**
 //! - How do you return complex types like strings or structs?
 //! - How do you propagate `Result<T, E>` errors across the FFI boundary?
 //! - How do you handle object lifecycle (constructors, methods, destructors)?

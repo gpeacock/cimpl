@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This is a **new project** taking over the `cimpl` crate name. Previous versions (0.1.0, 0.1.1, 0.2.0) were a different, unrelated project and have been yanked. This version represents a complete rewrite with a different purpose and API.
 
+### Documentation
+
+**Comprehensive crate-level documentation:**
+- Added complete "Why cimpl?" section with origin story from c2pa-rs development at Adobe
+- Explains the insight: AI excels at C API bindings, Rust natively supports C APIs
+- Documents string-based error handling with `Error::from_error()`
+- Shows current macro usage patterns (`deref_or_return!`, `ok_or_return!`)
+- Includes working example with thiserror integration
+- Complete feature list organized by category (pointer safety, strings, bytes, results, options)
+- Links to AI_WORKFLOW.md and PHILOSOPHY.md guides
+- References both example projects (reference and uuid)
+- Highlights AI-friendly design with 15-minute generation proof
+
+**Zero dependencies:**
+- Removed unused `paste` crate dependency
+- Library now has zero runtime dependencies
+
+**Documentation quality:**
+- Fixed all rustdoc warnings (HTML tags, ambiguous links)
+- Clean docs.rs build with no warnings
+
 ### Added
 
 **Core FFI Infrastructure:**
